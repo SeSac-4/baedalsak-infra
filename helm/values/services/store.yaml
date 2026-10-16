@@ -1,0 +1,12 @@
+# store
+db:
+  enabled: true
+  user: store_svc
+  schema: store
+dynamodb:
+  enabled: false               # DynamoDB 사용이 정해지면 true
+
+autoscaling:                   # AWS 기준 (로컬은 values/local.yaml 에서 1~3)
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

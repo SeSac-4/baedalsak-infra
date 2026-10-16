@@ -1,0 +1,63 @@
+# =============================================================================
+# baedalsak-infra — GitHub 에 올리지 않는 파일
+# =============================================================================
+
+# ---------- 비밀 정보 (절대 커밋 금지) ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+kubeconfig
+*.kubeconfig
+
+# ---------- Helm ----------
+# helm package / helm dependency update 결과물
+*.tgz
+helm/charts/*/charts/
+# helm template 렌더링 결과를 저장해 볼 때
+rendered/
+
+# ---------- Terraform (추가 예정) ----------
+# state 에는 DB 비밀번호 등 민감 정보가 평문으로 들어감 → 원격 state(S3) 사용
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# .terraform.lock.hcl 은 커밋함 (provider 버전 고정)
+
+# ---------- 전달용 압축본 ----------
+*.zip
+
+# ---------- 로그 ----------
+*.log
+
+# ---------- IDE ----------
+.idea/
+*.iml
+.vscode/
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Claude Code 개인 설정 ----------
+# .claude/settings.json · hooks 는 팀 공용이라 커밋함
+.claude/settings.local.json
+CLAUDE.local.md
+.claude/**
+claude.md
+CLAUDE.md
+
+docs/README_v1.md

@@ -1,0 +1,29 @@
+{{- /* 로컬(Traefik): /api 를 떼고 gateway 에 전달 — /api/orders → /orders */}}
+{{- if and .Values.ingress.enabled .Values.ingress.stripPrefix.enabled .Values.ingress.stripPrefix.traefik }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "svc.stripMiddlewareName" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+spec:
+  stripPrefix:
+    prefixes:
+      - {{ .Values.ingress.path | quote }}
+---
+{{- /*
+  StripPrefix 가 붙이는 X-Forwarded-Prefix: /api 를 제거 (StripPrefix 다음에 실행)
+  K8s 에서 Spring Boot 는 forward-headers 를 자동 적용해 이 헤더로 경로를 /api/... 로 되돌림
+  → gateway 라우트(Path=/stores/**) 가 매칭되지 않아 404
+*/}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "svc.prefixHeaderMiddlewareName" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Prefix: ""   # 빈 값 = 헤더 삭제
+{{- end }}

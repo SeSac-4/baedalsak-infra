@@ -1,0 +1,52 @@
+# =============================================================================
+# AWS (EKS) — 빈칸 템플릿
+#   <...> 는 Terraform output 이 나오면 채움. "미정" 표시는 팀 결정이 필요한 항목
+#   이 파일은 아직 배포에 쓰지 않음 (CD 단계에서 확정)
+# =============================================================================
+global:
+  imageRegistry: ghcr.io/sesac-4    # 미정: CD 단계에서 ECR(<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com) 로 교체 예정 (인수인계 8번)
+  imageNamespace: baedalsak
+  imagePullSecrets: []              # GHCR 패키지가 public 이면 불필요
+
+  springProfile: ""                 # 미정: 운영 프로필 이름
+
+  db:
+    host: <RDS_ENDPOINT>
+    port: 5432
+    name: baedalsak
+  rabbitmq:
+    host: <AMAZON_MQ_ENDPOINT>
+    port: 5671                      # Amazon MQ 는 AMQPS(TLS) 5671 만 받음
+    vhost: /prod                    # RABBITMQ_VHOST (dev 클러스터는 /dev)
+    sslEnabled: true                # RABBITMQ_SSL_ENABLED
+  redisSession:
+    host: <ELASTICACHE_SESSION_ENDPOINT>
+    port: 6379                      # 미정: ElastiCache 전송 암호화(TLS) 사용 여부
+  dynamodb:
+    endpoint: ""                    # 운영은 비움 → SDK 기본 엔드포인트 (규칙 문서 3번)
+  awsLocalCredentials: false        # 운영 권한은 IRSA
+
+  externalSecret:                   # Secrets Manager → Secret (External Secrets Operator)
+    enabled: true
+    store: <CLUSTER_SECRET_STORE>
+    keyPrefix: <SECRETS_MANAGER_PREFIX>   # 미정: 키 이름 규칙 (예: baedalsak/<서비스>)
+
+  irsaRoleArnFormat: "arn:aws:iam::<ACCOUNT_ID>:role/<IRSA_ROLE_PREFIX>-%s"   # 미정: 역할 이름 규칙
+
+ingress:
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: <ACM_CERT_ARN>
+    alb.ingress.kubernetes.io/subnets: <PUBLIC_SUBNET_IDS>
+    alb.ingress.kubernetes.io/security-groups: <ALB_SG_ID>      # CloudFront 에서만 접근
+    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health/readiness
+    alb.ingress.kubernetes.io/healthcheck-port: "8081"          # actuator 전용 포트 (chart managementPort)
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=10
+  host: <API_DOMAIN>
+  stripPrefix:
+    traefik: false
+    # 미정: ALB Ingress 는 경로를 바꿀 수 없음. 운영에서 /api 를 어디서 뗄지 결정 필요
+    #       (CloudFront Function / gateway 설정 / 그 밖의 방법)

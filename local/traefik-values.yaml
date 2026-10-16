@@ -1,0 +1,18 @@
+# 로컬 Ingress 컨트롤러 (traefik/traefik 차트 v41.7.1, Traefik v3.7)
+# 운영 EKS 에서는 AWS Load Balancer Controller(ALB) 가 이 역할을 함
+#
+# 접속: minikube tunnel 이 LoadBalancer 를 http://localhost:80 으로 연결
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: traefik
+
+service:
+  type: LoadBalancer
+
+providers:
+  kubernetesIngress:
+    # Ingress 의 router.middlewares 어노테이션(StripPrefix) 은 이 namespace 에서만 허용
+    crossProviderNamespaces: [baedalsak]
+  kubernetesCRD:
+    enabled: true            # Middleware(StripPrefix) 사용

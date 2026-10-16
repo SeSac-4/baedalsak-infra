@@ -1,0 +1,184 @@
+# =============================================================================
+# baedalsak-service 기본값
+#
+# 적용 순서: 이 파일 → values/services/<서비스>.yaml → values/<local|aws>.yaml
+#   services/* : 환경과 무관한 서비스 특성 (DB 계정·schema, 사용하는 의존성, HPA 범위)
+#   local/aws  : 환경마다 다른 값 (접속 주소, 이미지 위치, 리소스, Ingress)
+#
+# 환경 변수 이름은 baedalsak-server/docs/backend-infra-rules.md 3번 표를 그대로 따름 (변경 금지)
+# =============================================================================
+
+nameOverride: ""
+
+# -----------------------------------------------------------------------------
+# 환경 값 — values/local.yaml, values/aws.yaml 에서 채움
+# -----------------------------------------------------------------------------
+global:
+  # 이미지: <imageRegistry>/<imageNamespace>/<서비스>:<tag>
+  #   로컬 빌드  : imageRegistry ""                → baedalsak/store:local-...
+  #   GHCR       : imageRegistry ghcr.io/sesac-4   → ghcr.io/sesac-4/baedalsak/store:sha-...
+  imageRegistry: ""
+  imageNamespace: baedalsak
+  imagePullSecrets: []
+
+  springProfile: ""            # SPRING_PROFILES_ACTIVE (비우면 주입 안 함)
+
+  db:                          # PostgreSQL (로컬: compose / 운영: RDS)
+    host: ""
+    port: 5432
+    # name 은 더 이상 쓰지 않음 — DB 이름은 서비스별 db.name (없으면 db.schema)
+  rabbitmq:                    # 로컬: compose / 운영: Amazon MQ
+    host: ""
+    port: 5672
+    vhost: /                     # RABBITMQ_VHOST (운영 Amazon MQ: /prod · /dev)
+    sslEnabled: false            # RABBITMQ_SSL_ENABLED (운영 Amazon MQ: true, port 5671)
+  redisSession:                # 세션 Redis (로컬: compose redis-session / 운영: ElastiCache 세션 전용)
+    host: ""
+    port: 6379
+  # 후순위 (관측성) Zipkin — configmap.yaml 의 ZIPKIN_ENDPOINT 와 함께 주석 해제
+  # zipkin:
+  #   endpoint: ""             # ZIPKIN_ENDPOINT
+  # DynamoDB 주석 처리 상태 — 사용 서비스가 생기면 서비스의 dynamodb.enabled: true
+  dynamodb:
+    endpoint: ""               # 로컬: DynamoDB Local 주소 / 운영: 비움 (SDK 기본 엔드포인트)
+  awsRegion: ap-northeast-2
+  awsLocalCredentials: false   # true: DynamoDB Local 용 더미 키(local/local) 주입 — 로컬 전용
+
+  # 비밀값(DB_PASSWORD, RABBITMQ_USER/PASSWORD, REDIS_SESSION_PASSWORD, JWT_SECRET, TOSS_SECRET_KEY) 이 들어 있는 Secret
+  #   로컬: make secret 이 각자의 .env 에서 만든 공용 Secret
+  secretName: ""
+  #   운영: Secrets Manager → External Secrets Operator 가 서비스별 Secret 생성
+  externalSecret:
+    enabled: false
+    store: ""                  # ClusterSecretStore 이름
+    keyPrefix: ""              # Secrets Manager 키 = <keyPrefix>/<서비스>
+    refreshInterval: 1h
+
+  irsaRoleArnFormat: ""        # 운영 IRSA 역할 ARN 형식 (%s = 서비스명)
+
+# -----------------------------------------------------------------------------
+# 서비스 특성 — values/services/<서비스>.yaml 에서 지정
+# -----------------------------------------------------------------------------
+db:
+  enabled: false
+  name: ""                     # DB_NAME   (비우면 schema 와 같음)
+  user: ""                     # DB_USER   (예: store_svc)
+  schema: ""                   # DB_SCHEMA (예: store, orders, member)
+rabbitmq:
+  enabled: true                # compose 와 동일하게 기본 사용
+redisSession:
+  enabled: false               # gateway·member 만 true
+dynamodb:
+  enabled: false               # 사용 서비스가 정해지면 true
+
+routes: {}                     # gateway 전용: STORE_SERVICE_URL 등
+secretKeys: []                 # 그 밖의 비밀값 — Secret 의 같은 이름 키를 주입 (gateway·member: JWT_SECRET, payment: TOSS_SECRET_KEY)
+extraEnv: {}                   # 그 밖의 환경 변수 (비밀값 금지)
+
+image:
+  repository: ""               # 지정 시 imageRegistry/imageNamespace 무시
+  tag: ""                      # 배포 시 --set image.tag=...
+  pullPolicy: IfNotPresent
+
+containerPort: 8080
+# actuator 전용 포트 (MANAGEMENT_SERVER_PORT 로 주입). Service 에는 열지 않음
+#   → Ingress(/api/*) 로 /actuator 가 외부에 보이지 않음. probe 는 파드에 직접 접속
+managementPort: 8081
+service:
+  port: 8080                   # compose 와 같은 주소: http://<서비스>:8080
+
+serviceAccount:
+  create: true
+  irsa: false                  # 운영에서 AWS API 를 쓰면 true
+  annotations: {}
+
+podAnnotations: {}
+
+# -----------------------------------------------------------------------------
+# Probe — Spring Boot Actuator (규칙 문서 2·3번: probes.enabled: true)
+# -----------------------------------------------------------------------------
+probes:
+  startup:                     # 기동 중에는 liveness/readiness 를 실행하지 않음
+    httpGet: { path: /actuator/health/liveness, port: management }
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30       # 5s × 30 = 최대 150s
+  liveness:                    # 프로세스 자체 이상 → 재시작 (외부 의존성 포함 금지)
+    httpGet: { path: /actuator/health/liveness, port: management }
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:                   # 트래픽에서만 제외 (DB 포함 안 함 — Spring 기본 readiness 그룹)
+    httpGet: { path: /actuator/health/readiness, port: management }
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# 종료: preStop 10s(트래픽 차단 대기) → SIGTERM → graceful 20s(앱 설정) → 여유 15s
+terminationGracePeriodSeconds: 45
+preStopSleepSeconds: 10
+
+resources:                     # AWS 기준. 로컬은 values/local.yaml 에서 축소
+  requests: { cpu: 250m, memory: 768Mi }
+  limits:   { cpu: "1",  memory: 768Mi }
+
+# -----------------------------------------------------------------------------
+# HPA — CPU 기준 (requests.cpu 대비 사용률). metrics-server 필요
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 30 }
+        - { type: Pods,    value: 2,   periodSeconds: 30 }
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - { type: Percent, value: 50, periodSeconds: 60 }
+      selectPolicy: Min
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# 운영 Multi-AZ 분산 (노드에 zone 라벨이 없는 로컬에서는 영향 없음)
+topologySpreadConstraints:
+  - { maxSkew: 1, topologyKey: topology.kubernetes.io/zone, whenUnsatisfiable: ScheduleAnyway }
+  - { maxSkew: 1, topologyKey: kubernetes.io/hostname,      whenUnsatisfiable: ScheduleAnyway }
+
+# Dockerfile 의 spring 사용자 (uid/gid 1001)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true   # 쓰기는 /tmp(emptyDir)만. 로그는 stdout (규칙 문서 6번)
+  capabilities: { drop: ["ALL"] }
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -----------------------------------------------------------------------------
+# Ingress — gateway 만 enabled. 컨트롤러별 설정은 values/<환경>.yaml
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""                     # 비우면 모든 호스트
+  path: /api
+  pathType: Prefix
+  # /api 를 떼고 gateway 에 전달 (/api/orders → /orders)
+  stripPrefix:
+    enabled: false
+    traefik: false             # true: Traefik Middleware(StripPrefix) 생성 + Ingress 에 연결

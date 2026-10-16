@@ -1,0 +1,57 @@
+# =============================================================================
+# 로컬 (minikube) — 의존성은 baedalsak-server 의 docker compose 를 그대로 사용
+#
+#   파드 → host.minikube.internal:<포트> → compose 가 PC 에 연 포트
+#   (postgres 5432 / rabbitmq 5672 / redis-session 6379)  — DynamoDB 주석 처리, Zipkin 후순위
+#   비밀번호는 각자의 .env 에서 만든 Secret(baedalsak-local) 사용 → make secret
+# =============================================================================
+global:
+  imageRegistry: ""                 # 로컬 빌드: baedalsak/<서비스>:local-<시각>
+                                    # GHCR 배포 시 make 가 ghcr.io/sesac-4 로 바꿔서 넘김
+  imageNamespace: baedalsak
+
+  springProfile: local
+
+  db:
+    host: host.minikube.internal
+    port: 5432
+    # DB 이름은 서비스별 (member, store, orders, payment, delivery) — services/*.yaml 의 schema 와 같음
+  rabbitmq:
+    host: host.minikube.internal
+    port: 5672
+  redisSession:
+    host: host.minikube.internal
+    port: 6379
+  # 후순위 (관측성) Zipkin
+  # zipkin:
+  #   endpoint: http://host.minikube.internal:9411/api/v2/spans
+  # DynamoDB 주석 처리 (사용처 없음)
+  # dynamodb:
+  #   endpoint: http://host.minikube.internal:8000
+  # awsLocalCredentials: true       # DynamoDB Local 은 아무 키나 받음 (compose 와 동일하게 local/local)
+
+  secretName: baedalsak-local
+
+# 노트북 자원에 맞게 축소 (6개 × 512Mi ≈ 3Gi)
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits:   { cpu: "1",  memory: 512Mi }
+
+# HPA 동작은 그대로 확인하되 1개에서 시작, 최대 3개
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 3
+
+pdb:
+  enabled: false                    # 1개짜리에 PDB 를 걸면 노드 drain 이 막힘
+
+probes:
+  startup:
+    failureThreshold: 60            # 여러 JVM 이 동시에 뜨면 느리므로 최대 300s
+
+ingress:
+  className: traefik                # local/traefik-values.yaml
+  annotations: {}
+  host: ""                          # http://localhost/api/...  (minikube tunnel)
+  stripPrefix:
+    traefik: true                   # Traefik Middleware 로 /api 제거

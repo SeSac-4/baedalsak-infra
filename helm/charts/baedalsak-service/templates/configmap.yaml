@@ -1,0 +1,47 @@
+{{- /* 비밀이 아닌 환경 변수 — 이름은 backend-infra-rules.md 3번 표 */}}
+{{- $g := .Values.global }}
+{{- $d := dict "SERVER_PORT" .Values.containerPort }}
+{{- /* Spring Boot 표준 변수 (management.server.port). 앱 코드 수정 없이 actuator 포트 분리 */}}
+{{- $_ := set $d "MANAGEMENT_SERVER_PORT" .Values.managementPort }}
+{{- with $g.springProfile }}{{ $_ := set $d "SPRING_PROFILES_ACTIVE" . }}{{ end }}
+{{- if .Values.db.enabled }}
+{{- $_ := set $d "DB_HOST" (required "global.db.host 값이 필요합니다" $g.db.host) }}
+{{- $_ := set $d "DB_PORT" $g.db.port }}
+{{- /* 인스턴스 1개 · 서비스별 DB: DB 이름은 서비스의 db.name, 없으면 schema 이름과 같음 (member, store, orders ...) */}}
+{{- $_ := set $d "DB_NAME" (.Values.db.name | default .Values.db.schema) }}
+{{- $_ := set $d "DB_USER" (required "db.user 값이 필요합니다" .Values.db.user) }}
+{{- $_ := set $d "DB_SCHEMA" (required "db.schema 값이 필요합니다" .Values.db.schema) }}
+{{- end }}
+{{- if .Values.rabbitmq.enabled }}
+{{- $_ := set $d "RABBITMQ_HOST" (required "global.rabbitmq.host 값이 필요합니다" $g.rabbitmq.host) }}
+{{- $_ := set $d "RABBITMQ_PORT" $g.rabbitmq.port }}
+{{- $_ := set $d "RABBITMQ_VHOST" ($g.rabbitmq.vhost | default "/") }}
+{{- $_ := set $d "RABBITMQ_SSL_ENABLED" ($g.rabbitmq.sslEnabled | default false) }}
+{{- end }}
+{{- if .Values.redisSession.enabled }}
+{{- $_ := set $d "REDIS_SESSION_HOST" (required "global.redisSession.host 값이 필요합니다" $g.redisSession.host) }}
+{{- $_ := set $d "REDIS_SESSION_PORT" $g.redisSession.port }}
+{{- end }}
+{{- if .Values.dynamodb.enabled }}
+{{- $_ := set $d "AWS_REGION" $g.awsRegion }}
+{{- with $g.dynamodb.endpoint }}{{ $_ := set $d "DYNAMODB_ENDPOINT" . }}{{ end }}
+{{- if $g.awsLocalCredentials }}
+{{- $_ := set $d "AWS_ACCESS_KEY_ID" "local" }}
+{{- $_ := set $d "AWS_SECRET_ACCESS_KEY" "local" }}
+{{- end }}
+{{- end }}
+{{- /* 후순위 (관측성) Zipkin — 쓸 때 아래 주석 해제
+{{- with $g.zipkin.endpoint }}{{ $_ := set $d "ZIPKIN_ENDPOINT" . }}{{ end }}
+*/}}
+{{- range $k, $v := .Values.routes }}{{ $_ := set $d $k $v }}{{ end }}
+{{- range $k, $v := .Values.extraEnv }}{{ $_ := set $d $k $v }}{{ end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "svc.name" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+data:
+  {{- range $k := keys $d | sortAlpha }}
+  {{ $k }}: {{ get $d $k | toString | quote }}
+  {{- end }}
