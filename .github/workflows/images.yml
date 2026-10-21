@@ -46,7 +46,7 @@ jobs:
           : "${SERVER_REF:?입력 server_ref 또는 레포 변수 SERVER_REF 가 필요합니다}"
 
       # public 서버 레포는 기본 토큰, private 이면 secrets.SERVER_REPO_TOKEN
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.SERVER_REPO }}
           ref: ${{ env.SERVER_REF }}
