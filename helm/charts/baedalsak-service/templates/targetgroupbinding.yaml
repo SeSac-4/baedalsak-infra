@@ -1,0 +1,15 @@
+{{- /* 운영(AWS): Terraform 이 만든 대상 그룹에 이 서비스의 파드 IP 를 등록 (AWS Load Balancer Controller). gateway 만 사용 */}}
+{{- if .Values.targetGroupBinding.enabled }}
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: {{ include "svc.name" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+spec:
+  serviceRef:
+    name: {{ include "svc.name" . }}
+    port: {{ .Values.service.port }}
+  targetGroupARN: {{ required "targetGroupBinding.targetGroupARN 값이 필요합니다" .Values.targetGroupBinding.targetGroupARN | quote }}
+  targetType: ip
+{{- end }}

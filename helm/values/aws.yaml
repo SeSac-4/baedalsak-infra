@@ -1,52 +1,66 @@
 # =============================================================================
-# AWS (EKS) — 빈칸 템플릿
-#   <...> 는 Terraform output 이 나오면 채움. "미정" 표시는 팀 결정이 필요한 항목
-#   이 파일은 아직 배포에 쓰지 않음 (CD 단계에서 확정)
+# AWS (EKS, namespace = ENV_NAME)
+#   "" 로 둔 환경별 값은 배포 스크립트(scripts/aws/deploy.sh)가 환경변수·SSM 값으로 --set 함
+#   적용 순서: 차트 기본값 → services/<서비스>.yaml → aws.yaml → 스크립트 --set
 # =============================================================================
 global:
-  imageRegistry: ghcr.io/sesac-4    # 미정: CD 단계에서 ECR(<ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com) 로 교체 예정 (인수인계 8번)
-  imageNamespace: baedalsak
-  imagePullSecrets: []              # GHCR 패키지가 public 이면 불필요
+  imageRegistry: ""                 # --set: <ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com
+  imageNamespace: ""                # --set: <PROJECT>-<ENV_NAME> (ECR 저장소 <PROJECT>-<ENV_NAME>/<서비스>)
+  imagePullSecrets: []
 
-  springProfile: ""                 # 미정: 운영 프로필 이름
+  springProfile: ""                 # 운영 프로필 이름 미정 → 기본(application.yml)
 
   db:
-    host: <RDS_ENDPOINT>
+    host: ""                        # --set: RDS 주소
     port: 5432
-    name: baedalsak
   rabbitmq:
-    host: <AMAZON_MQ_ENDPOINT>
+    host: ""                        # --set: Amazon MQ 주소
     port: 5671                      # Amazon MQ 는 AMQPS(TLS) 5671 만 받음
-    vhost: /prod                    # RABBITMQ_VHOST (dev 클러스터는 /dev)
-    sslEnabled: true                # RABBITMQ_SSL_ENABLED
+    vhost: ""                       # --set: /<ENV_NAME>
+    sslEnabled: true
   redisSession:
-    host: <ELASTICACHE_SESSION_ENDPOINT>
-    port: 6379                      # 미정: ElastiCache 전송 암호화(TLS) 사용 여부
+    host: ""                        # --set: ElastiCache 주소
+    port: 6379                      # TLS + AUTH (아래 extraEnv 로 SSL 활성화)
   dynamodb:
-    endpoint: ""                    # 운영은 비움 → SDK 기본 엔드포인트 (규칙 문서 3번)
-  awsLocalCredentials: false        # 운영 권한은 IRSA
+    endpoint: ""
+  awsRegion: ""                     # --set: AWS_REGION
+  awsLocalCredentials: false        # 운영 권한은 Pod Identity
 
-  externalSecret:                   # Secrets Manager → Secret (External Secrets Operator)
+  externalSecret:                   # Secrets Manager <SECRET_PREFIX>/<서비스> → Secret (External Secrets Operator)
     enabled: true
-    store: <CLUSTER_SECRET_STORE>
-    keyPrefix: <SECRETS_MANAGER_PREFIX>   # 미정: 키 이름 규칙 (예: baedalsak/<서비스>)
+    store: aws-secrets-manager      # scripts/aws/addons.sh 가 만드는 ClusterSecretStore
+    keyPrefix: ""                   # --set: SECRET_PREFIX (기본 <PROJECT>/<ENV_NAME>)
 
-  irsaRoleArnFormat: "arn:aws:iam::<ACCOUNT_ID>:role/<IRSA_ROLE_PREFIX>-%s"   # 미정: 역할 이름 규칙
+  irsaRoleArnFormat: ""             # IRSA 미사용 (Pod Identity — 역할 연결은 Terraform)
+
+# ElastiCache 전송 중 암호화(TLS) — 앱 설정 변경 없이 Spring 표준 속성으로 켬
+extraEnv:
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+
+# [임시값 — 결정 예정] 리소스: CPU limit 없음 (JVM 기동 시 CPU 제한 → readiness 실패 방지), 메모리 requests = limits
+#   팀 결정(CLAUDE.md)은 limit 1 코어. AWS 에서 검증한 값으로 우선 운영하고 확정 후 변경
+resources:
+  requests: { cpu: 250m, memory: 768Mi }
+  limits:
+    cpu: null
+    memory: 768Mi
+
+# [임시값 — 결정 예정] 종료 순서: preStop 20s → SIGTERM → graceful 20s → 여유
+#   팀 결정은 preStop 10s · grace 45. ALB 대상 제외(헬스체크 10s×2·deregistration 30s)가 10s 보다 길어 AWS 검증값 사용
+terminationGracePeriodSeconds: 60
+preStopSleepSeconds: 20
+
+# replica·HPA·PDB 는 서비스별로 scripts/aws/deploy.sh 에서 지정 (gateway 2·HPA 2~4·PDB / 나머지 1)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+pdb:
+  enabled: false
 
 ingress:
-  className: alb
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/certificate-arn: <ACM_CERT_ARN>
-    alb.ingress.kubernetes.io/subnets: <PUBLIC_SUBNET_IDS>
-    alb.ingress.kubernetes.io/security-groups: <ALB_SG_ID>      # CloudFront 에서만 접근
-    alb.ingress.kubernetes.io/healthcheck-path: /actuator/health/readiness
-    alb.ingress.kubernetes.io/healthcheck-port: "8081"          # actuator 전용 포트 (chart managementPort)
-    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=10
-  host: <API_DOMAIN>
-  stripPrefix:
-    traefik: false
-    # 미정: ALB Ingress 는 경로를 바꿀 수 없음. 운영에서 /api 를 어디서 뗄지 결정 필요
-    #       (CloudFront Function / gateway 설정 / 그 밖의 방법)
+  enabled: false                    # AWS 는 Ingress 대신 TargetGroupBinding
+
+probes:
+  startup:
+    # [임시값 — 결정 예정] 팀 결정은 ×30(최대 150s). 노드 2대에 서비스 6개 동시 기동 대비 AWS 검증값 사용
+    failureThreshold: 60            # 5s × 60 = 최대 300s (기동 시간 측정 후 조정)

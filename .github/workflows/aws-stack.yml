@@ -1,0 +1,186 @@
+# =============================================================================
+# AWS 스택 공통 본체 — 직접 실행하지 않음. 아래 워크플로가 action 을 넘겨 호출
+#   aws-plan.yml       (action=plan)       : 두 스택 plan (변경 미리보기)
+#   aws-persistent.yml (action=persistent) : persistent 스택만 apply (ECR·Secrets Manager 등)
+#   aws-up.yml         (action=up)         : persistent → ephemeral apply → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
+#   aws-down.yml       (action=down)       : 앱·애드온 삭제 → ephemeral destroy (RDS 최종 스냅샷) → 스냅샷 7개만 보관
+# 동시 실행 방지(concurrency)는 호출하는 쪽에 둠 — 여기에도 같은 group 을 두면 서로 기다리다 멈춤
+# 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
+#   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
+#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · ALB_CERTIFICATE_ARN · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+# =============================================================================
+name: (공통) AWS 스택 실행
+
+on:
+  workflow_call:
+    inputs:
+      action:
+        description: plan | persistent | up | down
+        type: string
+        required: true
+      image_tag:
+        description: up 일 때 배포할 이미지 태그 (비우면 ECR gateway 의 최신 태그)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  # scripts/aws/env.sh 가 읽는 값 (선택 값이 비면 <PROJECT>-<ENV_NAME> 규칙)
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PROJECT: ${{ vars.PROJECT }}
+  ENV_NAME: ${{ vars.ENV_NAME }}
+  CLUSTER_NAME: ${{ vars.CLUSTER_NAME || format('{0}-{1}', vars.PROJECT, vars.ENV_NAME) }}
+  SECRET_PREFIX: ${{ vars.SECRET_PREFIX }}
+  SSM_PREFIX: ${{ vars.SSM_PREFIX }}
+  LOG_GROUP: ${{ vars.LOG_GROUP }}
+  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  # Terraform 변수 (같은 값을 TF_VAR_* 로)
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_region: ${{ vars.AWS_REGION }}
+  TF_VAR_project: ${{ vars.PROJECT }}
+  TF_VAR_env: ${{ vars.ENV_NAME }}
+  TF_VAR_azs: ${{ vars.AZS }}
+  TF_VAR_kubernetes_version: ${{ vars.KUBERNETES_VERSION }}
+  TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+  TF_VAR_cluster_name: ${{ vars.CLUSTER_NAME }}
+  TF_VAR_secret_prefix: ${{ vars.SECRET_PREFIX }}
+  TF_VAR_ssm_prefix: ${{ vars.SSM_PREFIX }}
+  TF_VAR_log_group_name: ${{ vars.LOG_GROUP }}
+  TF_VAR_team_member_arns: ${{ vars.TEAM_MEMBER_ARNS || '[]' }}
+  TF_VAR_team_member_policy: ${{ vars.TEAM_MEMBER_POLICY || 'AmazonEKSAdminViewPolicy' }}
+  TF_VAR_alb_certificate_arn: ${{ vars.ALB_CERTIFICATE_ARN }}
+
+jobs:
+  stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: check variables
+        run: |
+          for v in AWS_REGION PROJECT ENV_NAME AWS_ROLE_ARN TF_STATE_BUCKET TF_VAR_azs TF_VAR_kubernetes_version; do
+            if [ -z "${!v}" ]; then echo "::error::레포 변수가 없습니다: $v (docs/aws-runbook.md 표 참고)"; exit 1; fi
+          done
+
+      # 도구 설치는 AWS 자격 증명을 받기 전에 (설치 액션이 자격 증명을 보지 못하게)
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.19.0
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
+
+      - name: terraform init
+        run: |
+          for s in persistent ephemeral; do
+            terraform -chdir=terraform/$s init -input=false \
+              -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=$AWS_REGION"
+          done
+
+      # ---------- plan ----------
+      - name: plan
+        if: inputs.action == 'plan'
+        run: |
+          terraform -chdir=terraform/persistent plan -input=false
+          terraform -chdir=terraform/ephemeral plan -input=false || echo "persistent 를 먼저 apply 해야 ephemeral plan 이 됩니다"
+
+      # ---------- persistent / up ----------
+      - name: apply persistent
+        if: inputs.action == 'persistent' || inputs.action == 'up'
+        run: terraform -chdir=terraform/persistent apply -input=false -auto-approve
+
+      - name: apply ephemeral (최신 최종 스냅샷에서 RDS 복원)
+        if: inputs.action == 'up'
+        run: |
+          SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
+            --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
+            --output text)
+          ARGS=()
+          if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
+          terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
+
+      - name: kubeconfig
+        if: inputs.action == 'up' || inputs.action == 'down'
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" || echo "cluster not found"
+
+      - name: addons
+        if: inputs.action == 'up'
+        run: ./scripts/aws/addons.sh
+
+      - name: DB·MQ init
+        if: inputs.action == 'up'
+        run: ./scripts/aws/db-init.sh
+
+      # 예약 실행은 태그 입력이 없으므로 마지막으로 빌드된 이미지를 배포
+      - name: image tag
+        id: tag
+        if: inputs.action == 'up'
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          TAG="$IMAGE_TAG"
+          if [ -z "$TAG" ]; then
+            TAG=$(aws ecr describe-images --repository-name "${PROJECT}-${ENV_NAME}/gateway" \
+              --query 'sort_by(imageDetails[?imageTags], &imagePushedAt)[-1].imageTags[0]' --output text 2>/dev/null || true)
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "None" ]; then
+            echo "::warning::배포할 이미지가 없습니다 — 앱 이미지 빌드 워크플로를 먼저 실행하세요 (인프라만 켬)"
+            TAG=""
+          fi
+          echo "image tag: ${TAG:-없음}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: deploy apps
+        if: inputs.action == 'up' && steps.tag.outputs.tag != ''
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: ./scripts/aws/deploy.sh "$IMAGE_TAG"
+
+      - name: smoke test
+        if: inputs.action == 'up' && steps.tag.outputs.tag != ''
+        run: ./scripts/aws/smoke-test.sh
+
+      - name: debug on failure
+        if: failure() && inputs.action == 'up'
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n "$ENV_NAME" get externalsecret,targetgroupbinding || true
+          for d in gateway member store order payment delivery; do
+            echo "===== $d"; kubectl -n "$ENV_NAME" logs "deploy/$d" --tail=80 || true
+          done
+          kubectl -n "$ENV_NAME" get events --sort-by=.lastTimestamp | tail -40 || true
+
+      # ---------- down ----------
+      - name: remove apps and addons
+        if: inputs.action == 'down'
+        run: ./scripts/aws/down.sh
+
+      - name: destroy ephemeral (RDS 최종 스냅샷 생성)
+        if: inputs.action == 'down'
+        run: terraform -chdir=terraform/ephemeral destroy -input=false -auto-approve
+
+      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김
+      - name: RDS 최종 스냅샷 정리 (최신 7개 보관)
+        if: inputs.action == 'down'
+        env:
+          KEEP: 7
+        run: |
+          mapfile -t OLD < <(aws rds describe-db-snapshots --snapshot-type manual \
+            --query "sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-')], &SnapshotCreateTime)[].DBSnapshotIdentifier" \
+            --output text | tr '\t' '\n' | grep . | head -n -"$KEEP")
+          for s in "${OLD[@]}"; do echo "delete $s"; aws rds delete-db-snapshot --db-snapshot-identifier "$s" >/dev/null; done
+          echo "삭제 ${#OLD[@]}개, 최신 $KEEP 개 보관"
