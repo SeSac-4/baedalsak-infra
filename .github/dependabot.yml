@@ -1,0 +1,7 @@
+# 워크플로 액션(SHA 고정)의 새 버전을 주 1회 PR 로 알림
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

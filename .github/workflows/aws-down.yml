@@ -1,0 +1,24 @@
+# AWS 개발 환경 끄기 — 평일 19:00 KST 자동 + 수동 실행
+#   앱·애드온 삭제 → ephemeral 스택 삭제(RDS 최종 스냅샷 생성) → 최종 스냅샷 최신 7개만 보관
+#   ECR·Secrets Manager 등 persistent 스택은 지우지 않음
+name: AWS 끄기 (평일 19:00)
+
+on:
+  schedule:
+    - cron: "0 10 * * 1-5" # UTC 10:00 = KST 19:00, 월~금
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# 켜기가 아직 돌고 있으면 끝날 때까지 기다린 뒤 실행
+concurrency:
+  group: aws-stack
+  cancel-in-progress: false
+
+jobs:
+  down:
+    uses: ./.github/workflows/aws-stack.yml
+    with:
+      action: down

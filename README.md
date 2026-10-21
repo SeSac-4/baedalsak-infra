@@ -18,6 +18,20 @@
 
 > 실제 서비스 코드가 아직 없어 `baedalsak-server/smoke-test`(검증용 모듈, 저장소 미포함)로 검증했습니다.
 
+## AWS (EKS) — Terraform + GitHub Actions
+
+AWS 개발 환경은 **평일 09:00 KST 자동으로 켜지고 19:00 KST 자동으로 꺼집니다** (기본 브랜치 develop 의 워크플로 기준).
+구성·처음 설정·실행 순서는 [`docs/aws-runbook.md`](docs/aws-runbook.md), 환경 변수 목록은 [`.env.example`](.env.example).
+
+| Actions 워크플로 | 하는 일 |
+|---|---|
+| AWS 켜기 (평일 09:00) | VPC·EKS·RDS(최신 스냅샷 복원)·MQ·Valkey·ALB 생성 → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test |
+| AWS 끄기 (평일 19:00) | 앱·애드온 삭제 → 위 리소스 삭제 (RDS 최종 스냅샷 최신 7개 보관) |
+| 앱 이미지 빌드 (서버 → ECR) | baedalsak-server 를 빌드해 ECR 에 올림 — 켜기는 마지막 빌드 이미지를 배포 |
+| AWS 변경 미리보기 (plan) / AWS 상시 리소스 적용 | 수동 — terraform plan / ECR·Secrets Manager 등 상시 리소스 apply |
+
+2026-10-21 테스트 레포에서 bootstrap → 상시 리소스 → 이미지 빌드 → 켜기(smoke test 통과) → 끄기(잔여 리소스 없음) 검증.
+
 ## 구성
 
 ```

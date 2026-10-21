@@ -1,0 +1,30 @@
+# AWS 개발 환경 켜기 — 평일 09:00 KST 자동 + 수동 실행
+#   ephemeral 스택 생성(최신 RDS 최종 스냅샷에서 복원) → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
+#   약 25~30분 소요 → 09:00 시작이면 09:30 전후 사용 가능
+#   예약 실행은 기본 브랜치의 파일 기준이며, GitHub 사정으로 수 분~수십 분 늦게 시작될 수 있음
+name: AWS 켜기 (평일 09:00)
+
+on:
+  schedule:
+    - cron: "0 0 * * 1-5" # UTC 00:00 = KST 09:00, 월~금
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 배포할 이미지 태그 (비우면 마지막으로 빌드한 이미지)
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-stack
+  cancel-in-progress: false
+
+jobs:
+  up:
+    uses: ./.github/workflows/aws-stack.yml
+    with:
+      action: up
+      image_tag: ${{ inputs.image_tag || '' }}

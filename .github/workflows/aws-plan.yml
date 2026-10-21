@@ -1,0 +1,19 @@
+# AWS 변경 미리보기 — persistent·ephemeral 두 스택 terraform plan (아무것도 만들거나 지우지 않음)
+name: AWS 변경 미리보기 (plan)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-stack
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    uses: ./.github/workflows/aws-stack.yml
+    with:
+      action: plan
