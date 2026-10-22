@@ -46,10 +46,23 @@ locals {
   log_group_name = coalesce(var.log_group_name, "/${var.project}/${var.env}/containers")
 }
 
-# ---------- ECR <project>-<env>/<서비스> (설정은 기본값, 수명 주기는 이후 결정) ----------
+# ---------- ECR <project>-<env>/<서비스> · 최신 7개만 보관 (롤백용 이전 버전 포함) ----------
 resource "aws_ecr_repository" "svc" {
   for_each = toset(local.services)
   name     = "${local.name}/${each.key}"
+}
+
+resource "aws_ecr_lifecycle_policy" "svc" {
+  for_each   = aws_ecr_repository.svc
+  repository = each.value.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "keep last 7 images"
+      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 7 }
+      action       = { type = "expire" }
+    }]
+  })
 }
 
 # ---------- 비밀값 ----------

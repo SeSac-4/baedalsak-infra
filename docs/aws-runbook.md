@@ -7,7 +7,7 @@
 ```
 terraform/
 ├── bootstrap/   처음 한 번, WSL2 에서 관리자 자격 증명으로 apply (state 버킷 · GitHub OIDC · Actions 역할)
-├── persistent/  매일 지우지 않음: ECR 6 · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
+├── persistent/  매일 지우지 않음: ECR 6(서비스별 최신 이미지 7개 보관) · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
