@@ -1,4 +1,4 @@
-# ---------- CloudWatch 알람 → SNS alerts(persistent) → Lambda ② → Discord ----------
+# ---------- CloudWatch 알람 → SNS alerts(persistent) → 메일 (ALERT_EMAILS) ----------
 #   임계값은 v1 기본값 (운영하며 조정 — 설계상 "알람 임계값"은 후순위 결정)
 locals {
   alarms = {

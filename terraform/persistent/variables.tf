@@ -65,8 +65,8 @@ variable "budget_daily_usd" {
   default     = 20
 }
 
-variable "budget_emails" {
-  description = "예산 알림 메일 수신자 JSON 배열 (BUDGET_EMAILS)"
+variable "alert_emails" {
+  description = "알림 메일 수신자 JSON 배열 (ALERT_EMAILS) — 알람 · 켜기/끄기 결과 · 예산"
   type        = list(string)
   default     = []
 }

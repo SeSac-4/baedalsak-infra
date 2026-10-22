@@ -1,7 +1,7 @@
 # AWS 개발 환경 켜기 — 평일 09:00 KST 자동 + 수동 실행
 #   ephemeral 스택 생성(최신 RDS 최종 스냅샷에서 복원) → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
 #   약 25~30분 소요 → 09:00 시작이면 09:30 전후 사용 가능
-#   예약은 EventBridge Scheduler 가 정시에 시작 (GitHub cron 의 지연 없음), 결과는 Discord 로 알림
+#   예약은 EventBridge Scheduler 가 정시에 시작 (GitHub cron 의 지연 없음), 결과는 메일(ALERT_EMAILS)로 알림
 name: AWS 켜기 (평일 09:00)
 
 # 예약: EventBridge Scheduler(평일 09:00 KST) → Step Functions → Lambda ① 이 task_token 과 함께 실행 (terraform/persistent/ops.tf)

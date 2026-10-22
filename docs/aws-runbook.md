@@ -14,10 +14,10 @@ terraform/
 │     cognito.tf  사용자 풀 2개(prod · 로컬 개발) · 그룹 3개 · member 앱 클라이언트
 │     ses.tf      도메인 자격 · DKIM
 │     audit.tf    로그 버킷(CloudTrail · ALB 액세스 30일) · CloudTrail(전체 리전)
-│     ops.tf      SNS · Lambda ①②③ · Step Functions · EventBridge Scheduler(평일 09:00·19:00) · Budgets
+│     ops.tf      SNS(메일 구독) · Lambda ①③ · Step Functions · EventBridge Scheduler(평일 09:00·19:00) · Budgets
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
       edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
-      alarms.tf   CloudWatch 알람 → SNS → Discord
+      alarms.tf   CloudWatch 알람 → SNS → 메일
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
 ├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:00 + 수동)
@@ -102,7 +102,7 @@ terraform -chdir=terraform/persistent plan
 | `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
 | `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 20) — 넘으면 끄기 |
-| `BUDGET_EMAILS` | 선택 | 예산 알림 메일 JSON 배열, 예: `["a@example.com"]` |
+| `ALERT_EMAILS` | 선택 | 알림 메일 JSON 배열 — `["seojointly@gmail.com"]` (알람·켜기/끄기 결과·예산). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
 
 **Secrets** (선택): `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
@@ -126,7 +126,7 @@ terraform -chdir=terraform/persistent plan
 
 - 켜기는 가장 최근 최종 스냅샷(`<PROJECT>-<ENV_NAME>-final-*`)에서 RDS 를 복원합니다 (스냅샷이 없으면 빈 DB 로 생성 → Flyway 가 테이블 생성).
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
-- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 Discord 로 옵니다.
+- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 `ALERT_EMAILS` 메일로 옵니다.
 - 일일 비용이 `BUDGET_DAILY_USD` 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
 
 ### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
@@ -134,11 +134,9 @@ terraform -chdir=terraform/persistent plan
 | Secrets Manager | 값 | 없으면 |
 |---|---|---|
 | `<SECRET_PREFIX>/github-dispatch` | GitHub fine-grained PAT — 레포 baedalsak-infra, **Actions: Read and write** | 예약 켜기·끄기가 실행 안 됨 (Step Functions 실패 → 알림) |
-| `<SECRET_PREFIX>/discord-webhook` | Discord 채널 웹훅 URL | 알림이 안 옴 (Lambda ② 오류 로그) |
 
 ```bash
 aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch --secret-string '<PAT>'
-aws secretsmanager put-secret-value --secret-id baedalsak/prod/discord-webhook --secret-string 'https://discord.com/api/webhooks/...'
 ```
 
 ### 프론트 배포 (baedalsak-client develop → S3)

@@ -3,7 +3,7 @@
 #   ECR · Secrets Manager(비밀값·DB 마스터 비밀번호) · CloudWatch 로그 그룹 · RDS 파라미터 그룹
 #   dns.tf      Route 53 존(도메인 구매 시 자동 생성 → 참조) · ACM ①(us-east-1) ②(서울)
 #   frontend.tf S3 프론트 · OAC · CF Function   (CloudFront 배포 자체는 ALB 와 함께 ephemeral/edge.tf)
-#   cognito.tf · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 · Discord · 켜기/끄기 자동화 · Budgets)
+#   cognito.tf · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 → 메일 · 켜기/끄기 자동화 · Budgets)
 # =============================================================================
 terraform {
   required_version = ">= 1.10"

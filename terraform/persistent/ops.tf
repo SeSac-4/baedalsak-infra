@@ -1,12 +1,11 @@
 # =============================================================================
 # 운영 자동화 (그림 v6 B안)
 #   켜기·끄기 : EventBridge Scheduler(평일 09:00·19:00 KST) → Step Functions → Lambda ① → GitHub Actions
-#              워크플로가 작업 토큰으로 결과 보고 → SNS → Lambda ② → Discord
-#   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → Lambda ② → Discord
-#   예산      : Budgets(일일) → 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
+#              워크플로가 작업 토큰으로 결과 보고 → SNS alerts → 메일
+#   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
+#   예산      : Budgets(일일) 80% 메일 · 100% 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
-#     <SECRET_PREFIX>/discord-webhook  Discord 웹훅 URL
 # =============================================================================
 
 resource "aws_secretsmanager_secret" "github_dispatch" {
@@ -14,14 +13,16 @@ resource "aws_secretsmanager_secret" "github_dispatch" {
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret" "discord_webhook" {
-  name                    = "${local.secret_prefix}/discord-webhook"
-  recovery_window_in_days = 0
-}
-
 # ---------- SNS ----------
 resource "aws_sns_topic" "alerts" {
   name = "${local.name}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  for_each  = toset(var.alert_emails)
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = each.value
 }
 
 resource "aws_sns_topic" "budget" {
@@ -49,16 +50,12 @@ resource "aws_sns_topic_policy" "budget" {
   policy = data.aws_iam_policy_document.budget_topic.json
 }
 
-# ---------- Lambda ①②③ ----------
+# ---------- Lambda ①③ ----------
 locals {
   lambdas = {
     dispatch = {
       env    = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
       secret = aws_secretsmanager_secret.github_dispatch.arn
-    }
-    notify = {
-      env    = { DISCORD_WEBHOOK_SECRET = aws_secretsmanager_secret.discord_webhook.arn }
-      secret = aws_secretsmanager_secret.discord_webhook.arn
     }
     budget_guard = {
       env    = { STATE_MACHINE_ARN = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power" }
@@ -126,20 +123,6 @@ resource "aws_cloudwatch_log_group" "lambda" {
   for_each          = local.lambdas
   name              = "/aws/lambda/${aws_lambda_function.this[each.key].function_name}"
   retention_in_days = 14
-}
-
-resource "aws_sns_topic_subscription" "notify" {
-  topic_arn = aws_sns_topic.alerts.arn
-  protocol  = "lambda"
-  endpoint  = aws_lambda_function.this["notify"].arn
-}
-
-resource "aws_lambda_permission" "notify" {
-  statement_id  = "sns-alerts"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.this["notify"].function_name
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.alerts.arn
 }
 
 resource "aws_sns_topic_subscription" "budget_guard" {
@@ -266,13 +249,13 @@ resource "aws_budgets_budget" "daily" {
 
   # 80% 는 메일만 (수신자가 있을 때)
   dynamic "notification" {
-    for_each = length(var.budget_emails) > 0 ? [1] : []
+    for_each = length(var.alert_emails) > 0 ? [1] : []
     content {
       comparison_operator        = "GREATER_THAN"
       threshold                  = 80
       threshold_type             = "PERCENTAGE"
       notification_type          = "ACTUAL"
-      subscriber_email_addresses = var.budget_emails
+      subscriber_email_addresses = var.alert_emails
     }
   }
 
@@ -282,7 +265,7 @@ resource "aws_budgets_budget" "daily" {
     threshold                  = 100
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
-    subscriber_email_addresses = var.budget_emails
+    subscriber_email_addresses = var.alert_emails
     subscriber_sns_topic_arns  = [aws_sns_topic.budget.arn]
   }
 }
