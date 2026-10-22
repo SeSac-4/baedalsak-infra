@@ -94,6 +94,7 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64
+          provenance: false # 태그 1개 = 매니페스트 1개 (ECR "최신 7개" 수명 주기가 이미지 단위로 세도록)
           build-args: MODULE=${{ matrix.service }}
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.PROJECT }}-${{ env.ENV_NAME }}/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
