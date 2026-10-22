@@ -7,16 +7,26 @@
 ```
 terraform/
 ├── bootstrap/   처음 한 번, WSL2 에서 관리자 자격 증명으로 apply (state 버킷 · GitHub OIDC · Actions 역할)
-├── persistent/  매일 지우지 않음: ECR 6(서비스별 최신 이미지 7개 보관) · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
-└── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
+├── persistent/  매일 지우지 않음 (AWS 전체 구성 v1)
+│     main.tf     ECR 6(최신 7개 보관) · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
+│     dns.tf      Route 53 존(구매 시 자동 생성, 참조만) · ACM ①(us-east-1, CloudFront) · ACM ②(서울, ALB) · DNS 검증
+│     frontend.tf S3 프론트 · OAC · CF Function(SPA 경로)
+│     cognito.tf  사용자 풀 2개(prod · 로컬 개발) · 그룹 3개 · member 앱 클라이언트
+│     ses.tf      도메인 자격 · DKIM
+│     audit.tf    로그 버킷(CloudTrail · ALB 액세스 30일) · CloudTrail(전체 리전)
+│     ops.tf      SNS · Lambda ①②③ · Step Functions · EventBridge Scheduler(평일 09:00·19:00) · Budgets
+└── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
+      edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
+      alarms.tf   CloudWatch 알람 → SNS → Discord
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
-├── aws-up.yml          AWS 켜기 (평일 09:00 자동 + 수동)
-├── aws-down.yml        AWS 끄기 (평일 19:00 자동 + 수동, 최종 스냅샷 7개 보관)
+├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:00 + 수동)
+├── aws-down.yml        AWS 끄기 (Scheduler 평일 19:00 · 예산 초과 + 수동, 최종 스냅샷 7개 보관)
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
-└── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 켜져 있으면 배포
+├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 켜져 있으면 배포
+└── frontend.yml        프론트 배포 (클라이언트 레포 CLIENT_REPO → npm build → S3 → CloudFront 무효화)
 ```
 
 ## 0. 환경변수
@@ -89,7 +99,10 @@ terraform -chdir=terraform/persistent plan
 | `SERVER_REF` | ✅ (images) | `develop` — 실행 시 입력 `server_ref` 가 우선 |
 | `TEAM_MEMBER_ARNS` | 선택 | `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) |
 | `TEAM_MEMBER_POLICY` | 선택 | `AmazonEKSAdminViewPolicy`(기본, 조회) / `AmazonEKSClusterAdminPolicy` |
-| `ALB_CERTIFICATE_ARN` | 선택 | ACM 인증서 ARN (없으면 HTTP 80) |
+| `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
+| `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
+| `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 20) — 넘으면 끄기 |
+| `BUDGET_EMAILS` | 선택 | 예산 알림 메일 JSON 배열, 예: `["a@example.com"]` |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
 
 **Secrets** (선택): `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
@@ -104,7 +117,7 @@ terraform -chdir=terraform/persistent plan
 2. **AWS 상시 리소스 적용 (ECR·Secrets)** → ECR·Secrets Manager 생성
 3. **앱 이미지 빌드 (서버 → ECR)** · server_ref 비움(=`SERVER_REF`) → Summary 에 `image_tag` (서버 커밋 7자리)
 
-매일 (자동, 월~금 · 기본 브랜치의 워크플로 기준):
+매일 (자동, 월~금 · EventBridge Scheduler → Step Functions → Lambda ① → 기본 브랜치 워크플로):
 
 | 시각 (KST) | 워크플로 | 하는 일 |
 |---|---|---|
@@ -113,7 +126,26 @@ terraform -chdir=terraform/persistent plan
 
 - 켜기는 가장 최근 최종 스냅샷(`<PROJECT>-<ENV_NAME>-final-*`)에서 RDS 를 복원합니다 (스냅샷이 없으면 빈 DB 로 생성 → Flyway 가 테이블 생성).
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
-- 예약 실행은 GitHub 사정으로 수 분~수십 분 늦게 시작될 수 있고, 공휴일은 따로 막지 않습니다.
+- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 Discord 로 옵니다.
+- 일일 비용이 `BUDGET_DAILY_USD` 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
+
+### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
+
+| Secrets Manager | 값 | 없으면 |
+|---|---|---|
+| `<SECRET_PREFIX>/github-dispatch` | GitHub fine-grained PAT — 레포 baedalsak-infra, **Actions: Read and write** | 예약 켜기·끄기가 실행 안 됨 (Step Functions 실패 → 알림) |
+| `<SECRET_PREFIX>/discord-webhook` | Discord 채널 웹훅 URL | 알림이 안 옴 (Lambda ② 오류 로그) |
+
+```bash
+aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch --secret-string '<PAT>'
+aws secretsmanager put-secret-value --secret-id baedalsak/prod/discord-webhook --secret-string 'https://discord.com/api/webhooks/...'
+```
+
+### 프론트 배포 (baedalsak-client develop → S3)
+
+- **프론트 배포** 워크플로: 클라이언트 레포 체크아웃 → `npm ci && npm run build` → `dist/` 를 S3 에 2회 업로드(assets 1년 캐시 → `index.html` no-cache) → 켜져 있으면 `/index.html` 무효화
+- 자동 실행: 클라이언트 레포에 서버와 같은 `notify-infra.yml` 을 두고 `event_type=client-updated` 로 보내면 됨 (Secret `INFRA_DISPATCH_TOKEN` 도 클라이언트 레포에). 그 전까지는 수동 실행
+- 접속: `https://<DOMAIN_NAME>` (켜져 있는 평일 09:00~19:00)
 - 켜기·끄기는 같은 동시 실행 그룹(`aws-stack`)이라 겹치면 앞의 실행이 끝날 때까지 기다립니다.
 
 ### 서버 커밋 자동 배포 (baedalsak-server develop → AWS)
@@ -181,8 +213,9 @@ jobs:
 | 각 파드 readiness | `UP` |
 | internal ALB → gateway → 서비스 | `/v1/stores` 등이 502·503·504 가 아님 (서비스에 컨트롤러가 없으면 404 가 정상) |
 | `/actuator/health` 전체 | 출력만 (DB·MQ·Redis 연결 상태 참고) |
+| 공개 경로 `https://<DOMAIN_NAME>/api/...` | CloudFront → VPC origin → ALB 443 → gateway 가 502·503·504 가 아님 (`/` 화면은 참고 출력) |
 
-internal ALB 는 VPC 안에서만 닿으므로 클러스터 안의 curl 파드로 확인합니다.
+1~5 는 internal ALB 가 VPC 안에서만 닿으므로(ALB 80 은 노드·Bastion SG 만 허용) 클러스터 안의 curl 파드로, 공개 경로는 러너에서 확인합니다.
 
 ### 팀원 접속 (평일 09:00~19:00, 켜져 있을 때)
 준비: aws cli + [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), 본인 IAM 키로 `aws configure` (리전 `ap-northeast-2`). EKS 는 레포 변수 `TEAM_MEMBER_ARNS` 에 본인 ARN 이 있어야 함.
@@ -199,23 +232,21 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 
 | 항목 | 설계 | 지금 | 바꿀 때 |
 |---|---|---|---|
-| 진입 | CloudFront VPC origin → internal ALB HTTPS | internal ALB **HTTP 80** 만, 외부 진입 없음 | 도메인·ACM ② 발급 후 `alb_certificate_arn` 지정, CloudFront 스택 추가 |
+| 진입 | CloudFront 는 persistent | CloudFront 배포·VPC origin 은 **ephemeral** (ALB 와 함께 매일 생성·삭제) → 꺼져 있는 시간엔 도메인도 응답 없음 | 상시 접속이 필요해지면 재검토 |
+| ALB 80 | 443 만 | 80 은 VPC 안 전용으로 남김 (smoke test · Bastion 터널) | 터널을 HTTPS 로 바꾸면 제거 |
 | `/api` 제거 | gateway StripPrefix | 현재 gateway 코드는 `/v1/...` 를 받음 (협의 9번) | 백엔드 StripPrefix 반영 후 `/api/v1/...` 로 smoke test 경로 변경 |
-| 인증 | Cognito | 앱이 아직 `JWT_SECRET` 사용 → Secrets Manager 에 임의 값 | 협의 1·2번 반영 후 Cognito 스택 추가 |
+| 인증 | Cognito | 사용자 풀은 생성(SSM `cognito_*`), 앱은 아직 `JWT_SECRET` 사용 | 협의 1·2번 반영 시 앱이 SSM 값 사용 |
+| 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |
 | 토스 키 | Secrets Manager | `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 | 콘솔에서 값 교체 (Terraform 이 덮어쓰지 않음) |
-| 운영 자동화 | Scheduler → Step Functions → Lambda | 수동 (Actions 버튼) | 다음 단계 |
 | Redis TLS | 앱 설정 | `SPRING_DATA_REDIS_SSL_ENABLED=true` 환경 변수로 켬 | 협의 6번 (`REDIS_SESSION_SSL_ENABLED`) 반영 시 교체 |
 
-## 5. 도메인 구매 (baedalsak.com)
+## 5. 도메인 (baedalsak.click — 구매 완료 2026-10-22)
 
-1. AWS 콘솔 → **Route 53** → 왼쪽 **Registered domains** → **Register domains**
-2. `baedalsak.com` 검색 → 장바구니 → 기간 1년
-3. 연락처 입력 → **Auto-renew 끄기** (결정: 자동 갱신 OFF) → 개인정보 보호(Privacy protection) 켜기
-4. 결제 후 등록 메일의 확인 링크 클릭 (15분~수 시간 걸릴 수 있음)
-5. 등록이 끝나면 Route 53 이 **호스티드 존을 자동 생성** → 다음 단계에서 Terraform 으로 import 해서 persistent 스택이 관리 (ACM ①② DNS 검증, CloudFront, SES DKIM)
-
-Route 53 Domains 결제는 신용카드가 계정에 등록돼 있어야 하고, 크레딧(교육용 등)으로는 결제되지 않을 수 있습니다.
+- Route 53 에서 `baedalsak.click` 구매 (자동 갱신 OFF, 만료 2027-10-21). 호스티드 존은 Route 53 이 자동 생성
+- Terraform 은 존을 **참조만** 함 (`data "aws_route53_zone"`) — 존을 지우면 네임서버가 바뀌므로 소유하지 않음
+- 이 존에 Terraform 이 만드는 레코드: ACM 검증 CNAME(persistent) · SES DKIM CNAME 3개(persistent) · `baedalsak.click` A/AAAA → CloudFront(ephemeral, 켜져 있을 때만)
+- 레포 변수 `DOMAIN_NAME=baedalsak.click`
 
 ## 6. 문제 해결
 
@@ -226,4 +257,8 @@ Route 53 Domains 결제는 신용카드가 계정에 등록돼 있어야 하고,
 | 서버 머지 후 빌드가 안 돎 | 서버 레포 `notify-infra` 실행 결과 — `INFRA_DISPATCH_TOKEN` 없음/만료/권한(Contents: Read and write) |
 | 파드 CrashLoop | Actions 로그 `debug on failure` 단계 — Flyway(DB 계정) · RabbitMQ vhost(`/<ENV_NAME>`) · Redis TLS |
 | 대상 그룹 unhealthy | 노드 SG 에 ALB SG → 8080·8081 허용, readiness 가 UP 인지 |
+| ACM 검증이 안 끝남 | Route 53 존의 `_xxxx.baedalsak.click` CNAME 확인 — 도메인 등록 직후엔 네임서버 전파에 수십 분 |
+| CloudFront 502 | ALB SG 에 CloudFront-VPCOrigins-Service-SG → 443 규칙, ALB 443 리스너 인증서가 도메인과 같은지 |
+| destroy 가 VPC 에서 멈춤 | VPC origin 이 남긴 ENI·`CloudFront-VPCOrigins-Service-SG` — VPC origin 삭제 완료(수 분) 후 다시 destroy |
+| 예약 켜기·끄기가 안 돎 | Step Functions `<NAME>-power` 실행 기록 · Secret `github-dispatch` 값 · Lambda `<NAME>-dispatch` 로그 |
 | destroy 가 TGB 에서 멈춤 | LBC 를 먼저 지운 경우 — `kubectl patch targetgroupbinding <이름> -n <ENV_NAME> -p '{"metadata":{"finalizers":[]}}' --type=merge` |
