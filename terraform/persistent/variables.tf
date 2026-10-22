@@ -25,3 +25,48 @@ variable "log_group_name" {
   type        = string
   default     = ""
 }
+
+variable "ssm_prefix" {
+  description = "SSM 파라미터 경로 (SSM_PREFIX). 비우면 /<project>/<env>"
+  type        = string
+  default     = ""
+}
+
+variable "domain_name" {
+  description = "서비스 도메인 (DOMAIN_NAME), Route 53 에서 구매한 것 — 예: baedalsak.click"
+  type        = string
+}
+
+variable "github_repo" {
+  description = "켜기·끄기를 실행할 인프라 레포 owner/repo (워크플로가 github.repository 로 넘김)"
+  type        = string
+}
+
+variable "github_ref" {
+  description = "켜기·끄기 워크플로를 실행할 브랜치 (워크플로가 기본 브랜치로 넘김)"
+  type        = string
+}
+
+variable "schedule_up" {
+  description = "켜기 시각 (EventBridge Scheduler cron, Asia/Seoul)"
+  type        = string
+  default     = "cron(0 9 ? * MON-FRI *)"
+}
+
+variable "schedule_down" {
+  description = "끄기 시각 (EventBridge Scheduler cron, Asia/Seoul)"
+  type        = string
+  default     = "cron(0 19 ? * MON-FRI *)"
+}
+
+variable "budget_daily_usd" {
+  description = "일일 예산 USD (BUDGET_DAILY_USD). 실제 비용이 넘으면 끄기 실행"
+  type        = number
+  default     = 20
+}
+
+variable "budget_emails" {
+  description = "예산 알림 메일 수신자 JSON 배열 (BUDGET_EMAILS)"
+  type        = list(string)
+  default     = []
+}

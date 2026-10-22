@@ -111,6 +111,7 @@ locals {
     redis_host       = aws_elasticache_replication_group.this.primary_endpoint_address
     target_group_arn = aws_lb_target_group.gateway.arn
     alb_dns          = aws_lb.internal.dns_name
+    cloudfront_id    = aws_cloudfront_distribution.main.id
   }
 }
 

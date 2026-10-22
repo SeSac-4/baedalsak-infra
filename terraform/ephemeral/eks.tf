@@ -10,6 +10,10 @@ module "eks" {
   endpoint_private_access = true
   authentication_mode     = "API"
 
+  # Secret 암호화는 EKS 기본(AWS 관리 키) — 고객 관리 KMS 키를 매일 만들지 않음
+  create_kms_key    = false
+  encryption_config = null
+
   # apply 하는 주체(GitHub Actions 역할)가 클러스터 관리자
   enable_cluster_creator_admin_permissions = true
 

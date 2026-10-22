@@ -1,13 +1,16 @@
 # =============================================================================
 # persistent — 매일 destroy 하지 않는 스택
 #   ECR · Secrets Manager(비밀값·DB 마스터 비밀번호) · CloudWatch 로그 그룹 · RDS 파라미터 그룹
-#   (Route 53 존 · ACM · CloudFront · Cognito · SES · 운영 자동화는 다음 단계에서 추가)
+#   dns.tf      Route 53 존(도메인 구매 시 자동 생성 → 참조) · ACM ①(us-east-1) ②(서울)
+#   frontend.tf S3 프론트 · OAC · CF Function   (CloudFront 배포 자체는 ALB 와 함께 ephemeral/edge.tf)
+#   cognito.tf · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 · Discord · 켜기/끄기 자동화 · Budgets)
 # =============================================================================
 terraform {
   required_version = ">= 1.10"
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 6.0" }
-    random = { source = "hashicorp/random", version = "~> 3.6" }
+    aws     = { source = "hashicorp/aws", version = "~> 6.0" }
+    random  = { source = "hashicorp/random", version = "~> 3.6" }
+    archive = { source = "hashicorp/archive", version = "~> 2.7" }
   }
   # backend 블록은 변수를 못 씀 → bucket·region 은 init 때 -backend-config 로 넘김
   #   terraform init -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=$AWS_REGION"
@@ -24,6 +27,17 @@ provider "aws" {
     tags = { Project = var.project, Env = var.env, Stack = "persistent", ManagedBy = "terraform" }
   }
 }
+
+# CloudFront 인증서(ACM ①)는 us-east-1 에만 만들 수 있음
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+  default_tags {
+    tags = { Project = var.project, Env = var.env, Stack = "persistent", ManagedBy = "terraform" }
+  }
+}
+
+data "aws_caller_identity" "this" {}
 
 locals {
   name     = "${var.project}-${var.env}" # 리소스 이름 규칙 (ephemeral·스크립트·워크플로 동일)
@@ -44,6 +58,8 @@ locals {
 
   secret_prefix  = coalesce(var.secret_prefix, "${var.project}/${var.env}")
   log_group_name = coalesce(var.log_group_name, "/${var.project}/${var.env}/containers")
+  ssm_prefix     = coalesce(var.ssm_prefix, "/${var.project}/${var.env}")
+  account        = data.aws_caller_identity.this.account_id
 }
 
 # ---------- ECR <project>-<env>/<서비스> · 최신 7개만 보관 (롤백용 이전 버전 포함) ----------
@@ -203,4 +219,49 @@ output "db_parameter_group" {
 
 output "log_group_name" {
   value = aws_cloudwatch_log_group.containers.name
+}
+
+# ---------- ephemeral 이 쓰는 값 (dns · frontend · audit · ops) ----------
+output "domain_name" {
+  value = var.domain_name
+}
+
+output "zone_id" {
+  value = data.aws_route53_zone.main.zone_id
+}
+
+output "cloudfront_certificate_arn" {
+  value = aws_acm_certificate_validation.cloudfront.certificate_arn
+}
+
+output "alb_certificate_arn" {
+  value = aws_acm_certificate_validation.alb.certificate_arn
+}
+
+output "front_bucket" {
+  value = aws_s3_bucket.front.bucket
+}
+
+output "front_bucket_arn" {
+  value = aws_s3_bucket.front.arn
+}
+
+output "front_bucket_domain" {
+  value = aws_s3_bucket.front.bucket_regional_domain_name
+}
+
+output "front_oac_id" {
+  value = aws_cloudfront_origin_access_control.front.id
+}
+
+output "spa_function_arn" {
+  value = aws_cloudfront_function.spa.arn
+}
+
+output "logs_bucket" {
+  value = aws_s3_bucket.logs.bucket
+}
+
+output "alerts_topic_arn" {
+  value = aws_sns_topic.alerts.arn
 }
