@@ -159,12 +159,14 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: deploy apps
+        id: deploy
         if: (inputs.action == 'up' || steps.cluster.outputs.up == 'true') && steps.tag.outputs.tag != ''
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: ./scripts/aws/deploy.sh "$IMAGE_TAG"
 
       - name: smoke test
+        id: smoke
         if: (inputs.action == 'up' || steps.cluster.outputs.up == 'true') && steps.tag.outputs.tag != ''
         run: ./scripts/aws/smoke-test.sh
 
@@ -177,6 +179,11 @@ jobs:
             echo "===== $d"; kubectl -n "$ENV_NAME" logs "deploy/$d" --tail=80 || true
           done
           kubectl -n "$ENV_NAME" get events --sort-by=.lastTimestamp | tail -40 || true
+
+      # 배포·smoke test 실패 → 직전 정상 리비전으로 helm rollback (로그는 위 단계에서 먼저 남김)
+      - name: rollback on failure
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.smoke.outcome == 'failure')
+        run: ./scripts/aws/rollback.sh
 
       # ---------- down ----------
       - name: remove apps and addons
