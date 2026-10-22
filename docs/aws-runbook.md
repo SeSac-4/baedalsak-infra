@@ -14,14 +14,14 @@ terraform/
 │     cognito.tf  사용자 풀 2개(prod · 로컬 개발) · 그룹 3개 · member 앱 클라이언트
 │     ses.tf      도메인 자격 · DKIM
 │     audit.tf    로그 버킷(CloudTrail · ALB 액세스 30일) · CloudTrail(전체 리전)
-│     ops.tf      SNS(메일 구독) · Lambda ①③ · Step Functions · EventBridge Scheduler(평일 09:00·19:00) · Budgets
+│     ops.tf      SNS(메일 구독) · Lambda ①③ · Step Functions · EventBridge Scheduler(평일 09:30·19:00) · Budgets
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
       edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
       alarms.tf   CloudWatch 알람 → SNS → 메일
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
-├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:00 + 수동)
-├── aws-down.yml        AWS 끄기 (Scheduler 평일 19:00 · 예산 초과 + 수동, 최종 스냅샷 7개 보관)
+├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:30 + 수동)
+├── aws-down.yml        AWS 끄기 (Scheduler 평일 19:00 · 예산 초과 + 수동)
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
@@ -121,10 +121,10 @@ terraform -chdir=terraform/persistent plan
 
 | 시각 (KST) | 워크플로 | 하는 일 |
 |---|---|---|
-| 09:00 | **AWS 켜기** | 약 25~30분. image_tag 를 비우면 ECR 에 마지막으로 빌드된 이미지를 배포. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
-| 19:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (RDS 최종 스냅샷 생성) → 최종 스냅샷 최신 7개만 보관 |
+| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 ECR 에 마지막으로 빌드된 이미지를 배포. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
+| 19:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
 
-- 켜기는 가장 최근 최종 스냅샷(`<PROJECT>-<ENV_NAME>-final-*`)에서 RDS 를 복원합니다 (스냅샷이 없으면 빈 DB 로 생성 → Flyway 가 테이블 생성).
+- 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
 - 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 `ALERT_EMAILS` 메일로 옵니다.
 - 일일 비용이 `BUDGET_DAILY_USD` 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
@@ -143,7 +143,7 @@ aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch -
 
 - **프론트 배포** 워크플로: 클라이언트 레포 체크아웃 → `npm ci && npm run build` → `dist/` 를 S3 에 2회 업로드(assets 1년 캐시 → `index.html` no-cache) → 켜져 있으면 `/index.html` 무효화
 - 자동 실행: 클라이언트 레포에 서버와 같은 `notify-infra.yml` 을 두고 `event_type=client-updated` 로 보내면 됨 (Secret `INFRA_DISPATCH_TOKEN` 도 클라이언트 레포에). 그 전까지는 수동 실행
-- 접속: `https://<DOMAIN_NAME>` (켜져 있는 평일 09:00~19:00)
+- 접속: `https://<DOMAIN_NAME>` (켜져 있는 평일 10:00~19:00)
 - 켜기·끄기는 같은 동시 실행 그룹(`aws-stack`)이라 겹치면 앞의 실행이 끝날 때까지 기다립니다.
 
 ### 서버 커밋 자동 배포 (baedalsak-server develop → AWS)
@@ -153,7 +153,7 @@ baedalsak-server develop push(머지)
   └ notify-infra.yml ── repository_dispatch(server-updated, sha) ──▶ baedalsak-infra
        └ 앱 이미지 빌드 (images.yml): sha 검증(develop 에 있는 커밋인지) → 6개 빌드 → ECR <PROJECT>-<ENV_NAME>/<서비스>:<sha 7자리>
             └ deploy (aws-stack action=deploy): 클러스터 켜져 있음 → deploy.sh + smoke test
-                                                  꺼져 있음   → 건너뜀, 다음 AWS 켜기(09:00)가 이 이미지를 배포
+                                                  꺼져 있음   → 건너뜀, 다음 AWS 켜기(09:30)가 이 이미지를 배포
 ```
 
 - 6개 중 하나라도 빌드가 실패하면 배포하지 않습니다.
@@ -215,7 +215,7 @@ jobs:
 
 1~5 는 internal ALB 가 VPC 안에서만 닿으므로(ALB 80 은 노드·Bastion SG 만 허용) 클러스터 안의 curl 파드로, 공개 경로는 러너에서 확인합니다.
 
-### 팀원 접속 (평일 09:00~19:00, 켜져 있을 때)
+### 팀원 접속 (평일 10:00~19:00, 켜져 있을 때)
 준비: aws cli + [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), 본인 IAM 키로 `aws configure` (리전 `ap-northeast-2`). EKS 는 레포 변수 `TEAM_MEMBER_ARNS` 에 본인 ARN 이 있어야 함.
 ```bash
 ./scripts/aws/tunnel.sh api     # localhost:8080 → internal ALB → gateway (예: curl localhost:8080/v1/stores)

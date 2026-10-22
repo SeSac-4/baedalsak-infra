@@ -128,15 +128,18 @@ jobs:
         if: inputs.action == 'persistent' || inputs.action == 'up'
         run: terraform -chdir=terraform/persistent apply -input=false -auto-approve
 
-      - name: apply ephemeral (최신 최종 스냅샷에서 RDS 복원)
+      # 개발 기간: RDS 는 매일 빈 DB 로 생성 (스냅샷 없음 — terraform/ephemeral/data.tf)
+      - name: apply ephemeral
         if: inputs.action == 'up'
-        run: |
-          SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
-            --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
-            --output text)
-          ARGS=()
-          if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
-          terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
+        run: terraform -chdir=terraform/ephemeral apply -input=false -auto-approve
+        # 운영 (최신 최종 스냅샷에서 RDS 복원) — data.tf 를 스냅샷 방식으로 되돌릴 때 위 run 대신 사용
+        # run: |
+        #   SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
+        #     --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
+        #     --output text)
+        #   ARGS=()
+        #   if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
+        #   terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
 
       - name: kubeconfig
         if: inputs.action == 'up' || inputs.action == 'down' || steps.cluster.outputs.up == 'true'
@@ -205,7 +208,7 @@ jobs:
         if: inputs.action == 'down'
         run: terraform -chdir=terraform/ephemeral destroy -input=false -auto-approve
 
-      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김
+      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김 (개발 기간엔 새로 생기지 않음 — 운영 방식 대비로 유지)
       - name: RDS 최종 스냅샷 정리 (최신 7개 보관)
         if: inputs.action == 'down'
         env:

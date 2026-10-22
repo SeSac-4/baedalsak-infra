@@ -66,6 +66,9 @@ locals {
 resource "aws_ecr_repository" "svc" {
   for_each = toset(local.services)
   name     = "${local.name}/${each.key}"
+
+  # push 할 때 기본 취약점 스캔 (무료) — ECR 경로에는 테스트·Trivy 가 없어서 최소한의 확인
+  image_scanning_configuration { scan_on_push = true }
 }
 
 resource "aws_ecr_lifecycle_policy" "svc" {

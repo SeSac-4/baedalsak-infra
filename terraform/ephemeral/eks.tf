@@ -30,8 +30,9 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.large"]
-      capacity_type  = "ON_DEMAND"
+      instance_types = ["t3.medium"] # 개발 기간 최소 사양: 2 vCPU · 4GiB · 파드 17개/노드 (메모리 부족하면 Cluster Autoscaler 가 노드 추가, 이슈 있으면 올림)
+      # instance_types = ["t3.large"] # 이전 값: 2 vCPU · 8GiB · 파드 35개/노드
+      capacity_type = "ON_DEMAND"
 
       min_size     = 2
       max_size     = 4
@@ -41,7 +42,7 @@ module "eks" {
         xvda = {
           device_name = "/dev/xvda"
           ebs = {
-            volume_size           = 30
+            volume_size           = 20 # 개발 기간 최소 (AL2023 EKS AMI 20GiB) · 이전 값 30
             volume_type           = "gp3"
             delete_on_termination = true
           }

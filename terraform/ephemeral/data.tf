@@ -1,4 +1,5 @@
-# ---------- RDS PostgreSQL 16 · db.t4g.small · Multi-AZ ----------
+# ---------- RDS PostgreSQL 16 · 개발 기간: db.t4g.micro · Single-AZ · 백업·스냅샷 없음 ----------
+#   매일 빈 DB 로 새로 만들고 db-init(DB·계정) → 각 서비스 Flyway(테이블)로 채움 — 끌 때 데이터는 사라짐
 resource "aws_db_subnet_group" "this" {
   name       = local.name
   subnet_ids = module.vpc.database_subnets
@@ -8,13 +9,15 @@ resource "aws_db_instance" "this" {
   identifier     = local.name
   engine         = "postgres"
   engine_version = "16"
-  instance_class = "db.t4g.small"
+  instance_class = "db.t4g.micro" # 개발 기간 최소 사양 (이슈 있으면 올림)
+  # instance_class = "db.t4g.small" # 이전 값
 
   allocated_storage = 20
   storage_type      = "gp3"
   storage_encrypted = true
 
-  multi_az               = true
+  multi_az = false # 개발 기간 Single-AZ
+  # multi_az             = true  # 운영 (설계: 유일하게 이중화, 장애 시 1~2분 자동 전환)
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = local.p.db_parameter_group
@@ -23,20 +26,23 @@ resource "aws_db_instance" "this" {
   username = local.p.db_master_user
   password = local.p.db_master_password
 
-  # 매일 destroy 시 최종 스냅샷 → 다음 apply 에서 복원 (자동 백업은 인스턴스와 함께 사라짐)
-  snapshot_identifier       = var.db_snapshot_identifier
-  skip_final_snapshot       = false
-  final_snapshot_identifier = "${local.name}-final-${formatdate("YYYYMMDDhhmm", timestamp())}"
-  backup_retention_period   = 1
-  copy_tags_to_snapshot     = true
-  deletion_protection       = false
+  # 개발 기간: 자동 백업·최종 스냅샷 없음 (Flyway 로 스키마 재생성)
+  skip_final_snapshot     = true
+  backup_retention_period = 0
+  # 운영 (매일 destroy 시 최종 스냅샷 → 다음 apply 에서 복원): 아래로 되돌리고 aws-stack.yml 의 스냅샷 복원·정리 단계 주석 해제
+  # snapshot_identifier       = var.db_snapshot_identifier
+  # skip_final_snapshot       = false
+  # final_snapshot_identifier = "${local.name}-final-${formatdate("YYYYMMDDhhmm", timestamp())}"
+  # backup_retention_period   = 1
+  copy_tags_to_snapshot = true
+  deletion_protection   = false
 
   auto_minor_version_upgrade      = true
   apply_immediately               = true
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
   lifecycle {
-    ignore_changes = [final_snapshot_identifier, snapshot_identifier]
+    ignore_changes = [final_snapshot_identifier, snapshot_identifier] # 운영 스냅샷 방식으로 되돌릴 때 필요
   }
 }
 
