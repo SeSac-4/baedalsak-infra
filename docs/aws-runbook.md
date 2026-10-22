@@ -7,7 +7,7 @@
 ```
 terraform/
 ├── bootstrap/   처음 한 번, WSL2 에서 관리자 자격 증명으로 apply (state 버킷 · GitHub OIDC · Actions 역할)
-├── persistent/  매일 지우지 않음: ECR 6 · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
+├── persistent/  매일 지우지 않음: ECR 6(서비스별 최신 이미지 7개 보관) · Secrets Manager · 로그 그룹 · RDS 파라미터 그룹
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
@@ -16,7 +16,7 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
-└── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR)
+└── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 켜져 있으면 배포
 ```
 
 ## 0. 환경변수
@@ -112,9 +112,65 @@ terraform -chdir=terraform/persistent plan
 | 19:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (RDS 최종 스냅샷 생성) → 최종 스냅샷 최신 7개만 보관 |
 
 - 켜기는 가장 최근 최종 스냅샷(`<PROJECT>-<ENV_NAME>-final-*`)에서 RDS 를 복원합니다 (스냅샷이 없으면 빈 DB 로 생성 → Flyway 가 테이블 생성).
-- 새 서버 코드를 반영하려면 **앱 이미지 빌드** 를 먼저 실행하세요 (켜기는 이미지를 빌드하지 않음).
+- 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
 - 예약 실행은 GitHub 사정으로 수 분~수십 분 늦게 시작될 수 있고, 공휴일은 따로 막지 않습니다.
 - 켜기·끄기는 같은 동시 실행 그룹(`aws-stack`)이라 겹치면 앞의 실행이 끝날 때까지 기다립니다.
+
+### 서버 커밋 자동 배포 (baedalsak-server develop → AWS)
+
+```
+baedalsak-server develop push(머지)
+  └ notify-infra.yml ── repository_dispatch(server-updated, sha) ──▶ baedalsak-infra
+       └ 앱 이미지 빌드 (images.yml): sha 검증(develop 에 있는 커밋인지) → 6개 빌드 → ECR <PROJECT>-<ENV_NAME>/<서비스>:<sha 7자리>
+            └ deploy (aws-stack action=deploy): 클러스터 켜져 있음 → deploy.sh + smoke test
+                                                  꺼져 있음   → 건너뜀, 다음 AWS 켜기(09:00)가 이 이미지를 배포
+```
+
+- 6개 중 하나라도 빌드가 실패하면 배포하지 않습니다.
+- 연속 머지는 순서대로 처리하고(`images` 그룹), 배포는 켜기·끄기와 겹치지 않습니다(`aws-stack` 그룹).
+- 문서(`**.md`, `docs/**`)만 바뀐 push 는 알리지 않습니다.
+
+준비 (한 번):
+
+1. fine-grained PAT 발급 — Resource owner `SeSac-4`, Repository `baedalsak-infra` 만, 권한 **Contents: Read and write** (repository_dispatch 에 필요)
+2. baedalsak-server → Settings → Secrets → Actions → **`INFRA_DISPATCH_TOKEN`** 에 1번 토큰
+3. baedalsak-server 담당자가 아래 파일을 `.github/workflows/notify-infra.yml` 로 추가 (develop PR)
+4. baedalsak-infra 의 이 변경(images.yml·aws-stack.yml)이 기본 브랜치(develop)에 있어야 함 — repository_dispatch 는 기본 브랜치 워크플로만 실행
+
+```yaml
+# =============================================================================
+# 인프라 레포에 배포 알림 (baedalsak-server)
+#
+#   develop push(머지) → <owner>/baedalsak-infra 에 repository_dispatch(server-updated, sha)
+#   → 인프라 레포 "앱 이미지 빌드" 가 이 커밋을 ECR 로 빌드
+#   → AWS 가 켜져 있으면 바로 배포 + smoke test / 꺼져 있으면 다음 켜기(평일 09:00) 때 배포
+#
+#   필요: 레포 Secret INFRA_DISPATCH_TOKEN
+#         fine-grained PAT, 대상 레포 baedalsak-infra, 권한 Contents: Read and write
+# =============================================================================
+name: notify-infra
+
+on:
+  push:
+    branches: [develop]
+    paths-ignore: ["**.md", "docs/**"]   # 문서만 바뀌면 다시 빌드할 필요 없음
+
+permissions: {}
+
+jobs:
+  notify:
+    name: 인프라 레포에 알림
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.INFRA_DISPATCH_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::error::레포 Secret INFRA_DISPATCH_TOKEN 이 없습니다"; exit 1; fi
+          gh api "repos/${GITHUB_REPOSITORY_OWNER}/baedalsak-infra/dispatches" \
+            -f event_type=server-updated -f "client_payload[sha]=$SHA"
+          echo "### 인프라 레포에 알림: \`$SHA\` → 이미지 빌드·배포는 baedalsak-infra Actions 에서 확인" >> "$GITHUB_STEP_SUMMARY"
+```
 
 ## 3. smoke test 가 보는 것
 
@@ -167,6 +223,7 @@ Route 53 Domains 결제는 신용카드가 계정에 등록돼 있어야 하고,
 |---|---|
 | `AssumeRoleWithWebIdentity` 실패 | 레포 변수 `AWS_ROLE_ARN`, bootstrap 때 `GITHUB_REPO` 가 이 레포(owner/repo)였는지 |
 | ESO Secret 이 안 생김 | `kubectl -n <ENV_NAME> describe externalsecret <서비스>` — Pod Identity 연결(namespace external-secrets, SA external-secrets) |
+| 서버 머지 후 빌드가 안 돎 | 서버 레포 `notify-infra` 실행 결과 — `INFRA_DISPATCH_TOKEN` 없음/만료/권한(Contents: Read and write) |
 | 파드 CrashLoop | Actions 로그 `debug on failure` 단계 — Flyway(DB 계정) · RabbitMQ vhost(`/<ENV_NAME>`) · Redis TLS |
 | 대상 그룹 unhealthy | 노드 SG 에 ALB SG → 8080·8081 허용, readiness 가 UP 인지 |
 | destroy 가 TGB 에서 멈춤 | LBC 를 먼저 지운 경우 — `kubectl patch targetgroupbinding <이름> -n <ENV_NAME> -p '{"metadata":{"finalizers":[]}}' --type=merge` |

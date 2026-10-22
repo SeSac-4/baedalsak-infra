@@ -25,6 +25,13 @@ kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 # 새 파드가 ALB 에서 healthy 가 된 뒤 이전 파드 종료 (롤링 배포 중 502 방지)
 kubectl label namespace "$NS" elbv2.k8s.aws/pod-readiness-gate-inject=enabled --overwrite
 
+# 실패 시 rollback.sh 가 되돌릴 리비전 (서비스별 마지막 정상 배포, 처음 설치면 빈 값)
+PREV="${TMPDIR:-/tmp}/${NAME}-deploy-prev"
+: > "$PREV"
+for svc in member store order payment delivery gateway; do
+  echo "$svc $(helm history "$svc" -n "$NS" -o json 2>/dev/null | jq -r '[.[] | select(.status=="deployed")][-1].revision // empty')" >> "$PREV"
+done
+
 for svc in member store order payment delivery gateway; do
   extra=()
   case "$svc" in

@@ -4,6 +4,7 @@
 #   aws-persistent.yml (action=persistent) : persistent 스택만 apply (ECR·Secrets Manager 등)
 #   aws-up.yml         (action=up)         : persistent → ephemeral apply → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
 #   aws-down.yml       (action=down)       : 앱·애드온 삭제 → ephemeral destroy (RDS 최종 스냅샷) → 스냅샷 7개만 보관
+#   images.yml         (action=deploy)     : 새 이미지 빌드 후, 클러스터가 켜져 있으면 앱만 배포 → smoke test
 # 동시 실행 방지(concurrency)는 호출하는 쪽에 둠 — 여기에도 같은 group 을 두면 서로 기다리다 멈춤
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
 #   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
@@ -15,7 +16,7 @@ on:
   workflow_call:
     inputs:
       action:
-        description: plan | persistent | up | down
+        description: plan | persistent | up | down | deploy
         type: string
         required: true
       image_tag:
@@ -60,7 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: check variables
         run: |
@@ -69,16 +70,16 @@ jobs:
           done
 
       # 도구 설치는 AWS 자격 증명을 받기 전에 (설치 액션이 자격 증명을 보지 못하게)
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.13.3
           terraform_wrapper: false
 
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.19.0
 
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -90,6 +91,19 @@ jobs:
             terraform -chdir=terraform/$s init -input=false \
               -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=$AWS_REGION"
           done
+
+      # ---------- deploy: 클러스터가 켜져 있을 때만 (꺼져 있으면 다음 "AWS 켜기" 가 최신 이미지를 배포) ----------
+      - name: cluster check
+        id: cluster
+        if: inputs.action == 'deploy'
+        run: |
+          STATUS=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query cluster.status --output text 2>/dev/null || echo NONE)
+          echo "cluster $CLUSTER_NAME: $STATUS"
+          if [ "$STATUS" = "ACTIVE" ]; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::클러스터가 꺼져 있어 배포를 건너뜀 — 다음 AWS 켜기 때 최신 이미지로 배포됩니다"
+          fi
 
       # ---------- plan ----------
       - name: plan
@@ -114,7 +128,7 @@ jobs:
           terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
 
       - name: kubeconfig
-        if: inputs.action == 'up' || inputs.action == 'down'
+        if: inputs.action == 'up' || inputs.action == 'down' || steps.cluster.outputs.up == 'true'
         run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" || echo "cluster not found"
 
       - name: addons
@@ -128,7 +142,7 @@ jobs:
       # 예약 실행은 태그 입력이 없으므로 마지막으로 빌드된 이미지를 배포
       - name: image tag
         id: tag
-        if: inputs.action == 'up'
+        if: inputs.action == 'up' || steps.cluster.outputs.up == 'true'
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
@@ -145,17 +159,19 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: deploy apps
-        if: inputs.action == 'up' && steps.tag.outputs.tag != ''
+        id: deploy
+        if: (inputs.action == 'up' || steps.cluster.outputs.up == 'true') && steps.tag.outputs.tag != ''
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: ./scripts/aws/deploy.sh "$IMAGE_TAG"
 
       - name: smoke test
-        if: inputs.action == 'up' && steps.tag.outputs.tag != ''
+        id: smoke
+        if: (inputs.action == 'up' || steps.cluster.outputs.up == 'true') && steps.tag.outputs.tag != ''
         run: ./scripts/aws/smoke-test.sh
 
       - name: debug on failure
-        if: failure() && inputs.action == 'up'
+        if: failure() && (inputs.action == 'up' || inputs.action == 'deploy')
         run: |
           kubectl get pods -A -o wide || true
           kubectl -n "$ENV_NAME" get externalsecret,targetgroupbinding || true
@@ -163,6 +179,11 @@ jobs:
             echo "===== $d"; kubectl -n "$ENV_NAME" logs "deploy/$d" --tail=80 || true
           done
           kubectl -n "$ENV_NAME" get events --sort-by=.lastTimestamp | tail -40 || true
+
+      # 배포·smoke test 실패 → 직전 정상 리비전으로 helm rollback (로그는 위 단계에서 먼저 남김)
+      - name: rollback on failure
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.smoke.outcome == 'failure')
+        run: ./scripts/aws/rollback.sh
 
       # ---------- down ----------
       - name: remove apps and addons
