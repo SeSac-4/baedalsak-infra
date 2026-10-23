@@ -66,7 +66,7 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 |---|---|---|
 | 로컬 K8s | minikube, **1노드**, docker 드라이버 | Docker Desktop 만으로 Windows(WSL2)·Mac·Linux 동일 |
 | 의존성 | baedalsak-server 의 **compose 재사용**, 파드에서 `host.minikube.internal` 로 접속 | 평소 개발과 같은 DB·MQ, 설정이 두 벌로 갈라지지 않음 |
-| 이미지 | compose 빌드 `baedalsak/<서비스>:local` → `local-<시각>` 태그로 minikube 에 load, 또는 GHCR `ghcr.io/sesac-4/baedalsak/<서비스>:sha-*` | 새 태그여야 파드가 교체됨 |
+| 이미지 | compose 빌드 `baedalsak/<서비스>:local` → `local-<시각>` 태그로 minikube 에 load (AWS 는 ECR) | 새 태그여야 파드가 교체됨 |
 | 차트 | 공통 차트 1개 + 서비스별 values 6개 | 배포 모양은 같고 DB 계정·HPA 범위만 다름 |
 | Ingress | Traefik(Helm). `/api` 를 **떼고** gateway 에 전달 (`/api/v1/orders` → `/v1/orders`), `X-Forwarded-Prefix` 헤더 삭제 | 헤더가 남으면 Spring 이 경로를 `/api/...` 로 되돌려 404 |
 | actuator | **8081** (`MANAGEMENT_SERVER_PORT`). Service·Ingress 에 열지 않음 | `/api/actuator` 외부 노출 차단. probe 는 파드에 직접 접속 |
@@ -139,7 +139,6 @@ make infra-check                 # 파드 → compose 의존성 연결 확인 (4
 # 3) 배포
 make dev SVC=store SERVER_DIR=$SRV          # compose 로 빌드 → minikube 에 load → 배포
 make dev-all SERVER_DIR=$SRV                # 6개 전체
-make deploy-ghcr SVC=store TAG=sha-1a2b3c4  # CI 가 GHCR 에 올린 이미지로 배포
 
 # 4) 확인
 make status
@@ -172,8 +171,7 @@ curl -i http://localhost:18080/api/v1/stores
 | ALB 헬스체크 | `aws.yaml` 에 `healthcheck-port: "8081"` 반영. ALB 보안그룹 → 파드 8081 인바운드 허용 필요 (Terraform) |
 | DynamoDB 사용 서비스 | 현재 주석 처리 (목록: `baedalsak-server/docs/backend-infra-rules.md` 9번). 정해지면 `services/*.yaml` 에 `dynamodb.enabled: true` (운영은 `serviceAccount.irsa: true` 도) |
 | EKS(=minikube) 쿠버네티스 버전 | Terraform 결정 후 `K8S_VERSION` 고정 |
-| 운영 값 | RDS·MQ·ElastiCache 주소, Amazon MQ TLS(5671), ElastiCache TLS, 운영 프로필, Secrets Manager 키 규칙, IRSA 역할, 이미지 저장소(GHCR→ECR) |
-| GHCR 패키지 공개 여부 | private 이면 `global.imagePullSecrets` 와 pull Secret 필요 |
+| 운영 값 | RDS·MQ·ElastiCache 주소, Amazon MQ TLS(5671), ElastiCache TLS, 운영 프로필, Secrets Manager 키 규칙, IRSA 역할 |
 | gateway 의 RabbitMQ 사용 여부 | 쓰지 않으면 `services/gateway.yaml` 에 `rabbitmq.enabled: false` |
 | 모니터링 (후순위) | Prometheus · Grafana · Fluent Bit · Zipkin — 앱 설정은 주석 처리 (`baedalsak-server/docs/backend-infra-rules.md` 9번). 수집 주소 예정 `<파드IP>:8081/actuator/prometheus` |
 
@@ -194,4 +192,4 @@ curl -i http://localhost:18080/api/v1/stores
 |---|---|
 | `docs/share-2026-10-14-ingress-actuator.md` | Ingress 404 수정 · actuator 8081 분리 |
 | `baedalsak-server/docs/backend-infra-rules.md` | 백엔드 ↔ 인프라 연동 규칙 |
-| `baedalsak-server/docs/backend-ci.md` | CI (GitHub Actions → GHCR) |
+| `baedalsak-server/docs/backend-ci.md` | CI (GitHub Actions — 테스트 · 빌드 · Trivy) |

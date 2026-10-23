@@ -11,7 +11,6 @@
 #   make dev SVC=store              compose 로 빌드 → minikube 에 load → 배포
 #   make dev SVC=store PLATFORM=linux/arm64   이미지 아키텍처 지정 (기본: PC 와 같음)
 #   make dev-all                    6개 전체
-#   make deploy-ghcr SVC=store TAG=sha-1a2b3c4   CI 가 GHCR 에 올린 이미지로 배포
 #   make hpa-test SVC=store LOAD_PATH=v1/stores   부하 → HPA 확장 확인
 # =============================================================================
 SHELL := /bin/bash
@@ -20,7 +19,6 @@ SERVICES   := gateway store order payment delivery member
 PROFILE    := baedalsak                 # minikube 프로필 = kube context 이름
 NS         := baedalsak
 CHART      := helm/charts/baedalsak-service
-GHCR       := ghcr.io/sesac-4
 SECRET     := baedalsak-local
 
 # baedalsak-server 저장소 위치 (compose.yaml, .env)
@@ -57,7 +55,7 @@ VALUES_LOCAL = -f helm/values/services/$(SVC).yaml -f helm/values/local.yaml \
   # DynamoDB 주석 처리: --set global.dynamodb.endpoint=http://$(DEP_HOST):8000
 
 .PHONY: need-svc up down delete tunnel secret infra-check dep-host build load deploy dev dev-all \
-        deploy-ghcr deploy-ghcr-all restart uninstall status logs hpa-test lint template-aws
+        restart uninstall status logs hpa-test lint template-aws
 
 need-svc:
 	@test -n "$(SVC)" || { echo "SVC=<서비스> 를 지정하세요 ($(SERVICES))"; exit 1; }
@@ -148,18 +146,6 @@ dev: build load
 
 dev-all:
 	@for s in $(SERVICES); do $(MAKE) dev SVC=$$s TAG=$(TAG) || exit 1; done
-
-# -----------------------------------------------------------------------------
-# 배포 — CI 가 GHCR 에 올린 이미지 (ghcr.io/sesac-4/baedalsak/<서비스>:sha-*)
-# -----------------------------------------------------------------------------
-deploy-ghcr: need-svc
-	@test "$(origin TAG)" = "command line" || { echo "TAG=sha-<7자리> 를 지정하세요"; exit 1; }
-	$(HELM) upgrade --install $(SVC) $(CHART) $(VALUES_LOCAL) \
-	  --set global.imageRegistry=$(GHCR) --set image.tag=$(TAG) --wait --timeout 10m
-
-deploy-ghcr-all:
-	@test "$(origin TAG)" = "command line" || { echo "TAG=sha-<7자리> 를 지정하세요"; exit 1; }
-	@for s in $(SERVICES); do $(MAKE) deploy-ghcr SVC=$$s TAG=$(TAG) || exit 1; done
 
 # -----------------------------------------------------------------------------
 # 확인·정리
