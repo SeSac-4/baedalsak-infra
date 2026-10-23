@@ -101,7 +101,8 @@ terraform -chdir=terraform/persistent plan
 | `TEAM_MEMBER_POLICY` | 선택 | `AmazonEKSAdminViewPolicy`(기본, 조회) / `AmazonEKSClusterAdminPolicy` |
 | `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
-| `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 20) — 넘으면 끄기 |
+| `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 끄기 |
+| `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 5) — 넘으면 메일만 |
 | `ALERT_EMAILS` | 선택 | 알림 메일 JSON 배열 — `["seojointly@gmail.com"]` (알람·켜기/끄기 결과·예산). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
 
@@ -127,7 +128,7 @@ terraform -chdir=terraform/persistent plan
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
 - 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 `ALERT_EMAILS` 메일로 옵니다.
-- 일일 비용이 `BUDGET_DAILY_USD` 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
+- 일일 비용이 `BUDGET_WARN_USD`(5) 를 넘으면 경고 메일, `BUDGET_DAILY_USD`(10) 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
 
 ### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
 

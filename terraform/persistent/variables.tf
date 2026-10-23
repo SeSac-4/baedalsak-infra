@@ -62,7 +62,13 @@ variable "schedule_down" {
 variable "budget_daily_usd" {
   description = "일일 예산 USD (BUDGET_DAILY_USD). 실제 비용이 넘으면 끄기 실행"
   type        = number
-  default     = 20
+  default     = 10
+}
+
+variable "budget_warn_usd" {
+  description = "일일 비용 경고 USD (BUDGET_WARN_USD). 넘으면 메일만"
+  type        = number
+  default     = 5
 }
 
 variable "alert_emails" {

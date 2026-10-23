@@ -9,7 +9,7 @@
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
 #   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
 #   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
-#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · ALERT_EMAILS · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · ALERT_EMAILS · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
 # =============================================================================
 name: (공통) AWS 스택 실행
 
@@ -63,7 +63,8 @@ env:
   TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
   TF_VAR_github_repo: ${{ github.repository }}
   TF_VAR_github_ref: ${{ github.event.repository.default_branch }}
-  TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '20' }}
+  TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '10' }}
+  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '5' }}
   TF_VAR_alert_emails: ${{ vars.ALERT_EMAILS || '[]' }}
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
 

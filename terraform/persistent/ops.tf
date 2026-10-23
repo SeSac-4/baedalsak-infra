@@ -3,7 +3,7 @@
 #   켜기·끄기 : EventBridge Scheduler(평일 09:00·19:00 KST) → Step Functions → Lambda ① → GitHub Actions
 #              워크플로가 작업 토큰으로 결과 보고 → SNS alerts → 메일
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
-#   예산      : Budgets(일일) 80% 메일 · 100% 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
+#   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
 # =============================================================================
@@ -247,13 +247,13 @@ resource "aws_budgets_budget" "daily" {
   limit_unit   = "USD"
   time_unit    = "DAILY"
 
-  # 80% 는 메일만 (수신자가 있을 때)
+  # 경고: 메일만 (수신자가 있을 때)
   dynamic "notification" {
     for_each = length(var.alert_emails) > 0 ? [1] : []
     content {
       comparison_operator        = "GREATER_THAN"
-      threshold                  = 80
-      threshold_type             = "PERCENTAGE"
+      threshold                  = var.budget_warn_usd
+      threshold_type             = "ABSOLUTE_VALUE"
       notification_type          = "ACTUAL"
       subscriber_email_addresses = var.alert_emails
     }

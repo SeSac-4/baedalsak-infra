@@ -63,3 +63,4 @@ CLAUDE.md
 docs/README_v1.md
 # Lambda zip (terraform archive_file 이 만듦)
 .build/
+__pycache__/
