@@ -14,7 +14,7 @@ terraform/
 │     cognito.tf  사용자 풀 2개(prod · 로컬 개발) · 그룹 3개 · member 앱 클라이언트
 │     ses.tf      도메인 자격 · DKIM
 │     audit.tf    로그 버킷(CloudTrail · ALB 액세스 30일) · CloudTrail(전체 리전)
-│     ops.tf      SNS(메일 구독) · Lambda ①③ · Step Functions · EventBridge Scheduler(평일 09:30·19:00) · Budgets
+│     ops.tf      SNS(메일 구독) · Lambda ①②③ · Step Functions · EventBridge Scheduler(평일 09:30·19:00) · Budgets
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
       edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
       alarms.tf   CloudWatch 알람 → SNS → 메일
@@ -127,7 +127,10 @@ terraform -chdir=terraform/persistent plan
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
-- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 결과(성공·실패)는 `ALERT_EMAILS` 메일로 옵니다.
+- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 `ALERT_EMAILS` 로 메일을 보냅니다.
+  - 제목 `[baedalsak-prod] AWS up|down OK|FAILED`
+  - 본문: AWS 상태 확인(켜기: EKS·노드그룹·RDS·`https://<DOMAIN>/api/v1/stores` 응답 / 끄기: 남은 EKS·RDS·MQ·ElastiCache·ALB·NAT·EC2·CloudFront) + GitHub 실행 링크 · 막힌 job·step · 오류 줄 · 로그 마지막 40줄
+  - 워크플로가 성공해도 AWS 상태 확인에서 걸리면 FAILED (예: 끄기 후 NAT 가 남음)
 - 일일 비용이 `BUDGET_WARN_USD`(5) 를 넘으면 경고 메일, `BUDGET_DAILY_USD`(10) 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
 
 ### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
@@ -259,5 +262,5 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 | ACM 검증이 안 끝남 | Route 53 존의 `_xxxx.baedalsak.click` CNAME 확인 — 도메인 등록 직후엔 네임서버 전파에 수십 분 |
 | CloudFront 502 | ALB SG 에 CloudFront-VPCOrigins-Service-SG → 443 규칙, ALB 443 리스너 인증서가 도메인과 같은지 |
 | destroy 가 VPC 에서 멈춤 | VPC origin 이 남긴 ENI·`CloudFront-VPCOrigins-Service-SG` — VPC origin 삭제 완료(수 분) 후 다시 destroy |
-| 예약 켜기·끄기가 안 돎 | Step Functions `<NAME>-power` 실행 기록 · Secret `github-dispatch` 값 · Lambda `<NAME>-dispatch` 로그 |
+| 예약 켜기·끄기가 안 돎 | 결과 메일의 "GitHub Actions" 부분 (dispatch 오류 코드: 401 토큰 · 404 권한/파일 · 422 입력) · Step Functions `<NAME>-power` 실행 기록 · Lambda `<NAME>-dispatch`·`<NAME>-report` 로그 |
 | destroy 가 TGB 에서 멈춤 | LBC 를 먼저 지운 경우 — `kubectl patch targetgroupbinding <이름> -n <ENV_NAME> -p '{"metadata":{"finalizers":[]}}' --type=merge` |

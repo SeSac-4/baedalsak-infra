@@ -2,6 +2,7 @@
 #   워크플로 마지막 단계가 같은 토큰으로 send-task-success/failure 를 보내 결과를 돌려줌
 import json
 import os
+import urllib.error
 import urllib.request
 
 import boto3
@@ -21,5 +22,8 @@ def handler(event, _context):
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(req, timeout=15) as res:  # 204 가 정상, 그 밖은 HTTPError 로 실패 → Step Functions 재시도
-        return {"status": res.status, "workflow": WORKFLOWS[action]}
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:  # 204 가 정상
+            return {"status": res.status, "workflow": WORKFLOWS[action]}
+    except urllib.error.HTTPError as e:  # 401 토큰 · 404 파일/권한 · 422 입력 — 응답 본문을 오류 메일에 남김
+        raise RuntimeError(f"GitHub dispatch {e.code} ({WORKFLOWS[action]}@{os.environ['GITHUB_REF']}): {e.read()[:500].decode('utf-8', 'replace')}") from None

@@ -1,7 +1,8 @@
 # =============================================================================
 # 운영 자동화 (그림 v6 B안)
-#   켜기·끄기 : EventBridge Scheduler(평일 09:00·19:00 KST) → Step Functions → Lambda ① → GitHub Actions
-#              워크플로가 작업 토큰으로 결과 보고 → SNS alerts → 메일
+#   켜기·끄기 : EventBridge Scheduler(평일 09:30·19:00 KST) → Step Functions → Lambda ① → GitHub Actions
+#              워크플로가 작업 토큰으로 결과 보고 → Lambda ② 가 결과 확인 → SNS alerts → 메일
+#              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
 #   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
@@ -50,16 +51,37 @@ resource "aws_sns_topic_policy" "budget" {
   policy = data.aws_iam_policy_document.budget_topic.json
 }
 
-# ---------- Lambda ①③ ----------
+# ---------- Lambda ① dispatch · ② report · ③ budget_guard ----------
 locals {
+  state_machine_arn = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power"
+  github_env        = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
+  read_github_token = { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.github_dispatch.arn }
   lambdas = {
     dispatch = {
-      env    = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
-      secret = aws_secretsmanager_secret.github_dispatch.arn
+      env        = local.github_env
+      timeout    = 30
+      statements = [local.read_github_token]
+    }
+    report = {
+      env     = merge(local.github_env, { NAME = local.name, TOPIC_ARN = aws_sns_topic.alerts.arn, DOMAIN_NAME = var.domain_name })
+      timeout = 120
+      statements = [
+        local.read_github_token,
+        { Effect = "Allow", Action = "sns:Publish", Resource = aws_sns_topic.alerts.arn },
+        { # 상태 확인 (읽기 전용)
+          Effect = "Allow", Resource = "*", Action = [
+            "eks:ListClusters", "eks:DescribeCluster", "eks:ListNodegroups", "eks:DescribeNodegroup",
+            "rds:DescribeDBInstances", "mq:ListBrokers", "elasticache:DescribeReplicationGroups",
+            "elasticloadbalancing:DescribeLoadBalancers", "ec2:DescribeNatGateways", "ec2:DescribeInstances",
+            "cloudfront:ListDistributions",
+          ]
+        },
+      ]
     }
     budget_guard = {
-      env    = { STATE_MACHINE_ARN = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power" }
-      secret = null
+      env        = { STATE_MACHINE_ARN = local.state_machine_arn }
+      timeout    = 30
+      statements = [{ Effect = "Allow", Action = "states:StartExecution", Resource = local.state_machine_arn }]
     }
   }
 }
@@ -97,14 +119,7 @@ resource "aws_iam_role_policy" "lambda" {
   for_each = local.lambdas
   name     = "access"
   role     = aws_iam_role.lambda[each.key].id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = each.value.secret != null ? [
-      { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = each.value.secret }
-      ] : [
-      { Effect = "Allow", Action = "states:StartExecution", Resource = each.value.env.STATE_MACHINE_ARN }
-    ]
-  })
+  policy   = jsonencode({ Version = "2012-10-17", Statement = each.value.statements })
 }
 
 resource "aws_lambda_function" "this" {
@@ -115,7 +130,7 @@ resource "aws_lambda_function" "this" {
   handler          = "${each.key}.handler"
   filename         = data.archive_file.lambda[each.key].output_path
   source_code_hash = data.archive_file.lambda[each.key].output_base64sha256
-  timeout          = 30
+  timeout          = each.value.timeout
   environment { variables = each.value.env }
 }
 
@@ -139,7 +154,9 @@ resource "aws_lambda_permission" "budget_guard" {
   source_arn    = aws_sns_topic.budget.arn
 }
 
-# ---------- Step Functions (켜기·끄기 순서 · 대기 · 재시도 · 결과 알림) ----------
+# ---------- Step Functions (켜기·끄기 실행 · 대기 · 재시도 · 결과 확인 · 메일) ----------
+#   RunWorkflow(Lambda ①, 작업 토큰 대기) ─ 성공/실패/시간 초과 모두 → Report(Lambda ②: 로그·상태 확인 → 메일) → ok 면 성공, 아니면 실패
+#   Report 자체가 실패하면 → NotifyFallback(SNS 직접) → 실패
 data "aws_iam_policy_document" "sfn_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -161,7 +178,7 @@ resource "aws_iam_role_policy" "sfn" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Effect = "Allow", Action = "lambda:InvokeFunction", Resource = aws_lambda_function.this["dispatch"].arn },
+      { Effect = "Allow", Action = "lambda:InvokeFunction", Resource = [aws_lambda_function.this["dispatch"].arn, aws_lambda_function.this["report"].arn] },
       { Effect = "Allow", Action = "sns:Publish", Resource = aws_sns_topic.alerts.arn },
     ]
   })
@@ -171,7 +188,7 @@ resource "aws_sfn_state_machine" "power" {
   name     = "${local.name}-power"
   role_arn = aws_iam_role.sfn.arn
   definition = jsonencode({
-    Comment = "AWS 켜기·끄기 — GitHub Actions 실행 후 작업 토큰으로 결과를 기다림"
+    Comment = "AWS 켜기·끄기 — GitHub Actions 실행 후 작업 토큰으로 결과를 기다리고, 결과·로그·AWS 상태를 메일로 보냄"
     StartAt = "RunWorkflow"
     States = {
       RunWorkflow = {
@@ -181,27 +198,38 @@ resource "aws_sfn_state_machine" "power" {
         TimeoutSeconds = 7200 # 켜기 약 30분 · 끄기 약 20분, 워크플로 timeout 120분
         ResultPath     = "$.result"
         Retry          = [{ ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 30 }]
-        Catch          = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.error", Next = "NotifyFailure" }]
-        Next           = "NotifySuccess"
+        Catch          = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.error", Next = "Report" }]
+        Next           = "Report"
       }
-      NotifySuccess = {
+      Report = {
+        Type           = "Task"
+        Resource       = "arn:aws:states:::lambda:invoke"
+        Parameters     = { FunctionName = aws_lambda_function.this["report"].arn, Payload = { "input.$" = "$", "started.$" = "$$.Execution.StartTime" } }
+        ResultSelector = { "ok.$" = "$.Payload.ok" }
+        ResultPath     = "$.report"
+        Retry          = [{ ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 10 }]
+        Catch          = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.reportError", Next = "NotifyFallback" }]
+        Next           = "Result"
+      }
+      Result = {
+        Type    = "Choice"
+        Choices = [{ Variable = "$.report.ok", BooleanEquals = true, Next = "Done" }]
+        Default = "Failed"
+      }
+      # SNS 메일 제목은 ASCII 만 허용
+      NotifyFallback = {
         Type       = "Task"
         Resource   = "arn:aws:states:::sns:publish"
-        Parameters = { TopicArn = aws_sns_topic.alerts.arn, Subject = "AWS 켜기·끄기", "Message.$" = "States.Format('{} 성공', $.action)" }
-        End        = true
-      }
-      NotifyFailure = {
-        Type       = "Task"
-        Resource   = "arn:aws:states:::sns:publish"
-        Parameters = { TopicArn = aws_sns_topic.alerts.arn, Subject = "AWS 켜기·끄기 실패", "Message.$" = "States.Format('{} 실패: {}', $.action, $.error.Error)" }
+        Parameters = { TopicArn = aws_sns_topic.alerts.arn, Subject = "[${local.name}] AWS power FAILED (report error)", "Message.$" = "States.Format('AWS {} - 결과 확인 Lambda 실패. Step Functions 실행 기록을 확인하세요. {}', $.action, States.JsonToString($.reportError))" }
         Next       = "Failed"
       }
+      Done   = { Type = "Succeed" }
       Failed = { Type = "Fail" }
     }
   })
 }
 
-# ---------- EventBridge Scheduler (평일 09:00 켜기 · 19:00 끄기, 공휴일은 막지 않음) ----------
+# ---------- EventBridge Scheduler (평일 09:30 켜기 · 19:00 끄기, 공휴일은 막지 않음) ----------
 data "aws_iam_policy_document" "scheduler_trust" {
   statement {
     actions = ["sts:AssumeRole"]
