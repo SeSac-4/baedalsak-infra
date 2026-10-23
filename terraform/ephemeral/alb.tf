@@ -1,4 +1,6 @@
 # internal ALB + 대상 그룹(gateway 1개, ip 타입). 파드 등록은 LBC 의 TargetGroupBinding
+#   443 : CloudFront VPC origin → HTTPS (ACM ②, persistent/dns.tf)
+#   80  : VPC 안 전용 (smoke test · Bastion 터널) — SG 로 노드·Bastion 만 허용, 외부 진입 경로 아님
 resource "aws_lb" "internal" {
   name               = local.name
   internal           = true
@@ -8,6 +10,13 @@ resource "aws_lb" "internal" {
   idle_timeout       = 60
 
   drop_invalid_header_fields = true
+  xff_header_processing_mode = "append"
+
+  access_logs {
+    bucket  = local.p.logs_bucket
+    prefix  = "alb"
+    enabled = true
+  }
 }
 
 resource "aws_lb_target_group" "gateway" {
@@ -30,40 +39,23 @@ resource "aws_lb_target_group" "gateway" {
   }
 }
 
-# 도메인·ACM ② 전: HTTP 80 으로 바로 전달 / 인증서가 있으면 80 → 443 리다이렉트
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.internal.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  dynamic "default_action" {
-    for_each = var.alb_certificate_arn == "" ? [1] : []
-    content {
-      type             = "forward"
-      target_group_arn = aws_lb_target_group.gateway.arn
-    }
-  }
-
-  dynamic "default_action" {
-    for_each = var.alb_certificate_arn == "" ? [] : [1]
-    content {
-      type = "redirect"
-      redirect {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-  }
-}
-
 resource "aws_lb_listener" "https" {
-  count             = var.alb_certificate_arn == "" ? 0 : 1
   load_balancer_arn = aws_lb.internal.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = var.alb_certificate_arn
+  certificate_arn   = local.p.alb_certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.gateway.arn
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.internal.arn
+  port              = 80
+  protocol          = "HTTP"
 
   default_action {
     type             = "forward"

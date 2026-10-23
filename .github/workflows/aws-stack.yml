@@ -8,7 +8,8 @@
 # 동시 실행 방지(concurrency)는 호출하는 쪽에 둠 — 여기에도 같은 group 을 두면 서로 기다리다 멈춤
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
 #   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
-#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · ALB_CERTIFICATE_ARN · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
+#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · ALERT_EMAILS · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
 # =============================================================================
 name: (공통) AWS 스택 실행
 
@@ -21,6 +22,11 @@ on:
         required: true
       image_tag:
         description: up 일 때 배포할 이미지 태그 (비우면 ECR gateway 의 최신 태그)
+        type: string
+        required: false
+        default: ""
+      task_token:
+        description: Step Functions 작업 토큰 (예약 켜기·끄기). 있으면 마지막에 결과를 보고
         type: string
         required: false
         default: ""
@@ -54,7 +60,13 @@ env:
   TF_VAR_log_group_name: ${{ vars.LOG_GROUP }}
   TF_VAR_team_member_arns: ${{ vars.TEAM_MEMBER_ARNS || '[]' }}
   TF_VAR_team_member_policy: ${{ vars.TEAM_MEMBER_POLICY || 'AmazonEKSAdminViewPolicy' }}
-  TF_VAR_alb_certificate_arn: ${{ vars.ALB_CERTIFICATE_ARN }}
+  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+  TF_VAR_github_repo: ${{ github.repository }}
+  TF_VAR_github_ref: ${{ github.event.repository.default_branch }}
+  TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '10' }}
+  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '5' }}
+  TF_VAR_alert_emails: ${{ vars.ALERT_EMAILS || '[]' }}
+  DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
 
 jobs:
   stack:
@@ -65,7 +77,7 @@ jobs:
 
       - name: check variables
         run: |
-          for v in AWS_REGION PROJECT ENV_NAME AWS_ROLE_ARN TF_STATE_BUCKET TF_VAR_azs TF_VAR_kubernetes_version; do
+          for v in AWS_REGION PROJECT ENV_NAME AWS_ROLE_ARN TF_STATE_BUCKET TF_VAR_azs TF_VAR_kubernetes_version DOMAIN_NAME; do
             if [ -z "${!v}" ]; then echo "::error::레포 변수가 없습니다: $v (docs/aws-runbook.md 표 참고)"; exit 1; fi
           done
 
@@ -117,15 +129,18 @@ jobs:
         if: inputs.action == 'persistent' || inputs.action == 'up'
         run: terraform -chdir=terraform/persistent apply -input=false -auto-approve
 
-      - name: apply ephemeral (최신 최종 스냅샷에서 RDS 복원)
+      # 개발 기간: RDS 는 매일 빈 DB 로 생성 (스냅샷 없음 — terraform/ephemeral/data.tf)
+      - name: apply ephemeral
         if: inputs.action == 'up'
-        run: |
-          SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
-            --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
-            --output text)
-          ARGS=()
-          if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
-          terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
+        run: terraform -chdir=terraform/ephemeral apply -input=false -auto-approve
+        # 운영 (최신 최종 스냅샷에서 RDS 복원) — data.tf 를 스냅샷 방식으로 되돌릴 때 위 run 대신 사용
+        # run: |
+        #   SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
+        #     --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
+        #     --output text)
+        #   ARGS=()
+        #   if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
+        #   terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
 
       - name: kubeconfig
         if: inputs.action == 'up' || inputs.action == 'down' || steps.cluster.outputs.up == 'true'
@@ -194,7 +209,7 @@ jobs:
         if: inputs.action == 'down'
         run: terraform -chdir=terraform/ephemeral destroy -input=false -auto-approve
 
-      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김
+      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김 (개발 기간엔 새로 생기지 않음 — 운영 방식 대비로 유지)
       - name: RDS 최종 스냅샷 정리 (최신 7개 보관)
         if: inputs.action == 'down'
         env:
@@ -205,3 +220,16 @@ jobs:
             --output text | tr '\t' '\n' | grep . | head -n -"$KEEP")
           for s in "${OLD[@]}"; do echo "delete $s"; aws rds delete-db-snapshot --db-snapshot-identifier "$s" >/dev/null; done
           echo "삭제 ${#OLD[@]}개, 최신 $KEEP 개 보관"
+
+      # 예약 실행(Scheduler → Step Functions → Lambda ①)이면 결과를 작업 토큰으로 돌려줌 → 메일 알림
+      - name: report to Step Functions
+        if: always() && inputs.task_token != ''
+        env:
+          TASK_TOKEN: ${{ inputs.task_token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            aws stepfunctions send-task-success --task-token "$TASK_TOKEN" --task-output "{\"status\":\"success\",\"run\":\"$GITHUB_RUN_ID\"}"
+          else
+            aws stepfunctions send-task-failure --task-token "$TASK_TOKEN" --error "Workflow${JOB_STATUS^}" --cause "run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi

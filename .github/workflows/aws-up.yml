@@ -1,16 +1,19 @@
-# AWS 개발 환경 켜기 — 평일 09:00 KST 자동 + 수동 실행
-#   ephemeral 스택 생성(최신 RDS 최종 스냅샷에서 복원) → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
-#   약 25~30분 소요 → 09:00 시작이면 09:30 전후 사용 가능
-#   예약 실행은 기본 브랜치의 파일 기준이며, GitHub 사정으로 수 분~수십 분 늦게 시작될 수 있음
-name: AWS 켜기 (평일 09:00)
+# AWS 개발 환경 켜기 — 평일 09:30 KST 자동(10:00 전 사용 가능) + 수동 실행
+#   ephemeral 스택 생성(개발 기간: RDS 는 빈 DB) → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
+#   약 25분 소요 → 09:30 시작이면 10:00 전 사용 가능
+#   예약은 EventBridge Scheduler 가 정시에 시작 (GitHub cron 의 지연 없음), 결과는 메일(ALERT_EMAILS)로 알림
+name: AWS 켜기 (평일 09:30)
 
+# 예약: EventBridge Scheduler(평일 09:00 KST) → Step Functions → Lambda ① 이 task_token 과 함께 실행 (terraform/persistent/ops.tf)
 on:
-  schedule:
-    - cron: "0 0 * * 1-5" # UTC 00:00 = KST 09:00, 월~금
   workflow_dispatch:
     inputs:
       image_tag:
         description: 배포할 이미지 태그 (비우면 마지막으로 빌드한 이미지)
+        required: false
+        default: ""
+      task_token:
+        description: (자동) Step Functions 작업 토큰 — 수동 실행 시 비워 둠
         required: false
         default: ""
 
@@ -28,3 +31,4 @@ jobs:
     with:
       action: up
       image_tag: ${{ inputs.image_tag || '' }}
+      task_token: ${{ inputs.task_token || '' }}

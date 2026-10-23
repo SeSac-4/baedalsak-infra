@@ -10,6 +10,10 @@ module "eks" {
   endpoint_private_access = true
   authentication_mode     = "API"
 
+  # Secret 암호화는 EKS 기본(AWS 관리 키) — 고객 관리 KMS 키를 매일 만들지 않음
+  create_kms_key    = false
+  encryption_config = null
+
   # apply 하는 주체(GitHub Actions 역할)가 클러스터 관리자
   enable_cluster_creator_admin_permissions = true
 
@@ -26,7 +30,7 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.large"]
+      instance_types = ["t3.large"] # 2 vCPU · 8GiB · 파드 35개/노드 (앱 7개 × 768Mi 메모리 때문에 medium 대신 유지)
       capacity_type  = "ON_DEMAND"
 
       min_size     = 2

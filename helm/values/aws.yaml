@@ -40,7 +40,7 @@ extraEnv:
 # [임시값 — 결정 예정] 리소스: CPU limit 없음 (JVM 기동 시 CPU 제한 → readiness 실패 방지), 메모리 requests = limits
 #   팀 결정(CLAUDE.md)은 limit 1 코어. AWS 에서 검증한 값으로 우선 운영하고 확정 후 변경
 resources:
-  requests: { cpu: 250m, memory: 768Mi }
+  requests: { cpu: 100m, memory: 768Mi } # 개발 기간 축소 (실사용 3%) — 부하테스트 시작 시 높이기 (이전 250m)
   limits:
     cpu: null
     memory: 768Mi

@@ -25,26 +25,12 @@ module "vpc" {
 }
 
 # ---------- 보안그룹 ----------
-# internal ALB: 지금은 VPC 안에서만 (CloudFront VPC origin 연결 시 그 SG 로 좁힘)
+# internal ALB: 443 은 CloudFront VPC origin SG 에서만 (edge.tf), 80 은 클러스터 안(smoke test)·Bastion 터널만
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
   description = "internal ALB"
   vpc_id      = module.vpc.vpc_id
 
-  ingress {
-    description = "HTTP from VPC"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = [module.vpc.vpc_cidr_block]
-  }
-  ingress {
-    description = "HTTPS from VPC"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [module.vpc.vpc_cidr_block]
-  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -95,6 +81,8 @@ locals {
     mq_bastionui = { sg = aws_security_group.mq.id, port = 443, src = aws_security_group.bastion.id }
     redis_node   = { sg = aws_security_group.redis.id, port = 6379, src = module.eks.node_security_group_id }
     redis_bast   = { sg = aws_security_group.redis.id, port = 6379, src = aws_security_group.bastion.id }
+    alb_node     = { sg = aws_security_group.alb.id, port = 80, src = module.eks.node_security_group_id }
+    alb_bastion  = { sg = aws_security_group.alb.id, port = 80, src = aws_security_group.bastion.id }
   }
 }
 

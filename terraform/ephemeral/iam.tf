@@ -144,7 +144,7 @@ data "aws_ssm_parameter" "al2023" {
 
 resource "aws_instance" "bastion" {
   ami                         = data.aws_ssm_parameter.al2023.value
-  instance_type               = "t3.micro"
+  instance_type               = "t3.nano" # 개발 기간 최소 사양 (SSM 포트포워딩만) · 이전 값 t3.micro
   subnet_id                   = module.vpc.public_subnets[0]
   vpc_security_group_ids      = [aws_security_group.bastion.id]
   iam_instance_profile        = aws_iam_instance_profile.bastion.name

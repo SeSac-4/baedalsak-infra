@@ -6,7 +6,9 @@
 #   3) 각 파드 readiness = UP (8081)
 #   4) internal ALB → gateway → 각 서비스 라우팅 (/v1/stores 등이 502·503·504 가 아니면 통과)
 #   5) (참고) 각 서비스 /actuator/health 전체 — DB·MQ·Redis 연결 상태 출력만
-# internal ALB·파드 IP 는 VPC 안에서만 닿으므로 클러스터 안의 curl 파드로 확인
+#   6) 공개 경로 https://<DOMAIN_NAME> → CloudFront → VPC origin → ALB 443 → gateway (/api/... 가 502·503·504 가 아니면 통과)
+#      화면(/)은 참고 출력만 — 프론트 배포 전에는 S3 가 비어 있어 403
+# 1~5 는 internal ALB·파드 IP 가 VPC 안에서만 닿으므로 클러스터 안의 curl 파드로, 6 은 실행한 곳(러너)에서 확인
 # =============================================================================
 set -uo pipefail
 
@@ -65,6 +67,17 @@ for kv in $POD_IPS; do
 done
 exit $f
 ' || fail=1
+
+if [ -n "${DOMAIN_NAME:-}" ]; then
+  echo "== 6) 공개 경로 https://$DOMAIN_NAME"
+  for p in /api/v1/stores /api/v1/categories; do
+    code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "https://$DOMAIN_NAME$p")
+    case "$code" in 502|503|504|000) echo "FAIL $p -> $code"; fail=1;; *) echo "PASS $p -> $code";; esac
+  done
+  echo "(참고) / -> $(curl -s -o /dev/null -m 15 -w "%{http_code}" "https://$DOMAIN_NAME/")"
+else
+  echo "== 6) 건너뜀 (DOMAIN_NAME 없음)"
+fi
 
 if [ "$fail" -eq 0 ]; then echo "SMOKE TEST PASSED"; else echo "SMOKE TEST FAILED"; fi
 exit "$fail"

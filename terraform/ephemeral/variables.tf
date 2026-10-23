@@ -71,9 +71,3 @@ variable "team_member_policy" {
   default     = "AmazonEKSAdminViewPolicy"
 }
 
-# ACM ②(서울) 인증서 ARN. 도메인 구매·검증 전에는 비워 두고 HTTP 80 리스너만 사용
-variable "alb_certificate_arn" {
-  description = "ALB 인증서 ARN (ALB_CERTIFICATE_ARN). 비우면 HTTP 80 만"
-  type        = string
-  default     = ""
-}

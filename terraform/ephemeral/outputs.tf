@@ -33,3 +33,11 @@ output "alb_dns" {
 output "bastion_instance_id" {
   value = aws_instance.bastion.id
 }
+
+output "cloudfront_id" {
+  value = aws_cloudfront_distribution.main.id
+}
+
+output "site_url" {
+  value = "https://${local.p.domain_name}"
+}

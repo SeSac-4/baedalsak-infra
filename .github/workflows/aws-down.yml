@@ -3,10 +3,15 @@
 #   ECR·Secrets Manager 등 persistent 스택은 지우지 않음
 name: AWS 끄기 (평일 19:00)
 
+# 예약: EventBridge Scheduler(평일 19:00 KST) → Step Functions → Lambda ① 이 task_token 과 함께 실행 (terraform/persistent/ops.tf)
+#   Budgets 일일 예산 초과 시에도 Lambda ③ → Step Functions 로 실행됨
 on:
-  schedule:
-    - cron: "0 10 * * 1-5" # UTC 10:00 = KST 19:00, 월~금
   workflow_dispatch:
+    inputs:
+      task_token:
+        description: (자동) Step Functions 작업 토큰 — 수동 실행 시 비워 둠
+        required: false
+        default: ""
 
 permissions:
   id-token: write
@@ -22,3 +27,4 @@ jobs:
     uses: ./.github/workflows/aws-stack.yml
     with:
       action: down
+      task_token: ${{ inputs.task_token || '' }}
