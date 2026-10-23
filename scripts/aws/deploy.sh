@@ -2,7 +2,7 @@
 # =============================================================================
 # 앱 6개 배포 (namespace = ENV_NAME) — 사용: deploy.sh <이미지 태그>
 #   values: 차트 기본값 → services/<서비스>.yaml → aws.yaml → 아래 --set
-#   gateway: replica 2 · HPA 2~4(CPU 70%) · PDB · TargetGroupBinding
+#   gateway: replica 2 · HPA 2~4(CPU 70%, 확장은 3분 지속 시) · PDB · TargetGroupBinding
 #   order·payment: 1 (HPA 1~3 은 부하 테스트 시점) / member·store·delivery: 1
 # =============================================================================
 set -euo pipefail
@@ -38,6 +38,7 @@ for svc in member store order payment delivery gateway; do
     gateway)
       extra+=(--set autoscaling.enabled=true --set autoscaling.minReplicas=2 --set autoscaling.maxReplicas=4
               --set autoscaling.targetCPUUtilizationPercentage=70
+              --set autoscaling.behavior.scaleUp.stabilizationWindowSeconds=180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — 3분 넘게 높을 때만 확장
               --set pdb.enabled=true --set pdb.minAvailable=1
               --set targetGroupBinding.enabled=true --set-string targetGroupBinding.targetGroupARN="$TG_ARN") ;;
     *)
