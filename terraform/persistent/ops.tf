@@ -155,7 +155,7 @@ resource "aws_lambda_permission" "budget_guard" {
 }
 
 # ---------- Step Functions (켜기·끄기 실행 · 대기 · 재시도 · 결과 확인 · 메일) ----------
-#   RunWorkflow(Lambda ①, 작업 토큰 대기) ─ 성공/실패/시간 초과 모두 → Report(Lambda ②: 로그·상태 확인 → 메일) → ok 면 성공, 아니면 실패
+#   RunWorkflow(Lambda ①, 작업 토큰 대기 · 워크플로 실패 시 1회 재실행) ─ 성공/실패/시간 초과 모두 → Report(Lambda ②: 로그·상태 확인 → 메일) → ok 면 성공, 아니면 실패
 #   Report 자체가 실패하면 → NotifyFallback(SNS 직접) → 실패
 data "aws_iam_policy_document" "sfn_trust" {
   statement {
@@ -197,9 +197,13 @@ resource "aws_sfn_state_machine" "power" {
         Parameters     = { FunctionName = aws_lambda_function.this["dispatch"].arn, Payload = { "action.$" = "$.action", "token.$" = "$$.Task.Token" } }
         TimeoutSeconds = 7200 # 켜기 약 30분 · 끄기 약 20분, 워크플로 timeout 120분
         ResultPath     = "$.result"
-        Retry          = [{ ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 30 }]
-        Catch          = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.error", Next = "Report" }]
-        Next           = "Report"
+        Retry = [
+          { ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 30 },
+          # 워크플로 실패(terraform·helm 일시 오류 등) → 1회 다시 실행. apply·destroy 는 다시 돌려도 안전. 시간 초과·취소는 재시도 안 함
+          { ErrorEquals = ["WorkflowFailure"], MaxAttempts = 1, IntervalSeconds = 120 },
+        ]
+        Catch = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.error", Next = "Report" }]
+        Next  = "Report"
       }
       Report = {
         Type           = "Task"

@@ -67,8 +67,14 @@ def github_section(action, started, token):
     runs = _gh(f"/repos/{repo}/actions/workflows/{WORKFLOWS[action]}/runs?{q}", token)["workflow_runs"]
     if not runs:
         return ["GitHub 실행 없음 — 워크플로가 시작되지 않음 (Lambda ① dispatch 실패 · 토큰 · 브랜치 확인)"]
-    run = runs[0]
-    out = [f"실행: {run['html_url']}",
+    out = []
+    for i, run in enumerate(reversed(runs[:2]), 1):  # Step Functions 재시도 시 실행 2개 (오래된 것부터)
+        out += _run_lines(repo, run, token, f"{i}회차 " if len(runs) > 1 else "")
+    return out
+
+
+def _run_lines(repo, run, token, prefix):
+    out = [f"{prefix}실행: {run['html_url']}",
            f"상태: {run['status']} / {run['conclusion'] or '-'} ({kst(run['run_started_at'])} ~ {kst(run['updated_at'])} KST)"]
     jobs = _gh(f"/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=50", token)["jobs"]
     for job in jobs:
@@ -82,7 +88,7 @@ def github_section(action, started, token):
                 out += ["", f"--- 로그: {job['name']} ---"] + log_excerpt(_gh(f"/repos/{repo}/actions/jobs/{job['id']}/logs", token, raw=True))
             except Exception as e:  # 로그를 못 받아도 메일은 보냄
                 out.append(f"(로그 받기 실패: {e})")
-    return out
+    return out + [""]
 
 
 def _mine(names):
