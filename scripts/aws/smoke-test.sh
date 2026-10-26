@@ -4,7 +4,7 @@
 #   1) 파드 6종 Ready
 #   2) 대상 그룹(gateway) healthy 2개 이상
 #   3) 각 파드 readiness = UP (8081)
-#   4) internal ALB → gateway → 각 서비스 라우팅 (/v1/stores 등이 502·503·504 가 아니면 통과)
+#   4) internal ALB → gateway → 각 서비스 라우팅 (/api/v1/stores 등이 502·503·504 가 아니면 통과)
 #   5) (참고) 각 서비스 /actuator/health 전체 — DB·MQ·Redis 연결 상태 출력만
 #   6) 공개 경로 https://<DOMAIN_NAME> → CloudFront → VPC origin → ALB 443 → gateway (/api/... 가 502·503·504 가 아니면 통과)
 #      화면(/)은 참고 출력만 — 프론트 배포 전에는 S3 가 비어 있어 403
@@ -58,7 +58,7 @@ for kv in $POD_IPS; do
   case "$body" in *"\"UP\""*) echo "PASS $s $body";; *) echo "FAIL $s $body"; f=1;; esac
 done
 echo "-- 4) ALB → gateway → 서비스 라우팅"
-for p in /v1/stores /v1/categories /v1/orders /v1/cart /v1/payments /v1/deliveries/waiting /v1/members/me; do
+for p in /api/v1/stores /api/v1/categories /api/v1/orders /api/v1/cart /api/v1/payments /api/v1/deliveries/waiting /api/v1/members/me; do
   code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" "http://$ALB$p")
   case "$code" in 502|503|504|000) echo "FAIL $p -> $code"; f=1;; *) echo "PASS $p -> $code";; esac
 done

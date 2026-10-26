@@ -68,7 +68,7 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 | 의존성 | baedalsak-server 의 **compose 재사용**, 파드에서 `host.minikube.internal` 로 접속 | 평소 개발과 같은 DB·MQ, 설정이 두 벌로 갈라지지 않음 |
 | 이미지 | compose 빌드 `baedalsak/<서비스>:local` → `local-<시각>` 태그로 minikube 에 load (AWS 는 ECR) | 새 태그여야 파드가 교체됨 |
 | 차트 | 공통 차트 1개 + 서비스별 values 6개 | 배포 모양은 같고 DB 계정·HPA 범위만 다름 |
-| Ingress | Traefik(Helm). `/api` 를 **떼고** gateway 에 전달 (`/api/v1/orders` → `/v1/orders`), `X-Forwarded-Prefix` 헤더 삭제 | 헤더가 남으면 Spring 이 경로를 `/api/...` 로 되돌려 404 |
+| Ingress | Traefik(Helm). `/api/...` 를 **그대로** gateway 에 전달 — `/api` 는 gateway(SCG `StripPrefix=1`)가 뗌 (server #22) | 로컬·AWS 가 같은 경로 (ALB 는 경로를 못 바꿈) |
 | actuator | **8081** (`MANAGEMENT_SERVER_PORT`). Service·Ingress 에 열지 않음 | `/api/actuator` 외부 노출 차단. probe 는 파드에 직접 접속 |
 | Secret | 각자의 `.env` 에서 키 6개만 골라 `baedalsak-local` 생성 (서비스는 필요한 키만 주입) | compose 와 같은 비밀번호, 비밀번호를 Git 에 두지 않음 |
 | 실행 | Makefile (Windows 는 WSL2) | 팀원 모두 같은 명령 |

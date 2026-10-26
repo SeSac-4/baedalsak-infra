@@ -213,7 +213,7 @@ jobs:
 | 파드 6종 | rollout 완료 |
 | 대상 그룹 | gateway healthy 2개 이상 (헬스체크 `/actuator/health/readiness` 8081) |
 | 각 파드 readiness | `UP` |
-| internal ALB → gateway → 서비스 | `/v1/stores` 등이 502·503·504 가 아님 (서비스에 컨트롤러가 없으면 404 가 정상) |
+| internal ALB → gateway → 서비스 | `/api/v1/stores` 등이 502·503·504 가 아님 (서비스에 컨트롤러가 없으면 404 가 정상) |
 | `/actuator/health` 전체 | 출력만 (DB·MQ·Redis 연결 상태 참고) |
 | 공개 경로 `https://<DOMAIN_NAME>/api/...` | CloudFront → VPC origin → ALB 443 → gateway 가 502·503·504 가 아님 (`/` 화면은 참고 출력) |
 
@@ -222,7 +222,7 @@ jobs:
 ### 팀원 접속 (평일 10:00~19:00, 켜져 있을 때)
 준비: aws cli + [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), 본인 IAM 키로 `aws configure` (리전 `ap-northeast-2`). EKS 는 레포 변수 `TEAM_MEMBER_ARNS` 에 본인 ARN 이 있어야 함.
 ```bash
-./scripts/aws/tunnel.sh api     # localhost:8080 → internal ALB → gateway (예: curl localhost:8080/v1/stores)
+./scripts/aws/tunnel.sh api     # localhost:8080 → internal ALB → gateway (예: curl localhost:8080/api/v1/stores)
 ./scripts/aws/tunnel.sh db      # localhost:15432 → RDS (계정은 Secrets Manager <SECRET_PREFIX>/<서비스>)
 ./scripts/aws/tunnel.sh redis   # localhost:16379 → ElastiCache (TLS + AUTH)
 ./scripts/aws/tunnel.sh mq      # https://localhost:15671 → Amazon MQ 콘솔
@@ -236,7 +236,6 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 |---|---|---|---|
 | 진입 | CloudFront 는 persistent | CloudFront 배포·VPC origin 은 **ephemeral** (ALB 와 함께 매일 생성·삭제) → 꺼져 있는 시간엔 도메인도 응답 없음 | 상시 접속이 필요해지면 재검토 |
 | ALB 80 | 443 만 | 80 은 VPC 안 전용으로 남김 (smoke test · Bastion 터널) | 터널을 HTTPS 로 바꾸면 제거 |
-| `/api` 제거 | gateway StripPrefix | 현재 gateway 코드는 `/v1/...` 를 받음 (협의 9번) | 백엔드 StripPrefix 반영 후 `/api/v1/...` 로 smoke test 경로 변경 |
 | 인증 | Cognito | 사용자 풀은 생성(SSM `cognito_*`), 앱은 아직 `JWT_SECRET` 사용 | 협의 1·2번 반영 시 앱이 SSM 값 사용 |
 | 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |

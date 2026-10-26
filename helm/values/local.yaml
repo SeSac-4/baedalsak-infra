@@ -54,4 +54,4 @@ ingress:
   annotations: {}
   host: ""                          # http://localhost/api/...  (minikube tunnel)
   stripPrefix:
-    traefik: true                   # Traefik Middleware 로 /api 제거
+    traefik: false                   # Traefik Middleware 로 /api 제거
