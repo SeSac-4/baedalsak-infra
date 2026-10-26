@@ -40,7 +40,9 @@ if [ "$healthy" -ge 2 ]; then echo "PASS healthy=$healthy"; else echo "FAIL heal
 echo "== 3~5) 클러스터 안에서 확인"
 POD_IPS=""
 for s in $SVCS; do
-  ip="$(kubectl -n "$NS" get pod -l "app.kubernetes.io/name=$s" -o jsonpath='{.items[0].status.podIP}')"
+  # 롤링 직후 종료 중(Terminating)인 이전 파드가 items[0] 이면 readiness 가 빈 응답 → 종료 중이 아닌 파드만
+  ip="$(kubectl -n "$NS" get pod -l "app.kubernetes.io/name=$s" \
+    -o jsonpath='{range .items[*]}{.metadata.deletionTimestamp}{"|"}{.status.podIP}{"\n"}{end}' | awk -F'|' '$1=="" {print $2; exit}')"
   POD_IPS="$POD_IPS $s=$ip"
 done
 
