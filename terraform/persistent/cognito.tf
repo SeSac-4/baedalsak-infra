@@ -6,6 +6,8 @@
 locals {
   user_pools  = { prod = local.name, local = "${var.project}-local" }
   user_groups = ["CUSTOMER", "OWNER", "RIDER"]
+  # 로컬 풀 Admin API 를 쓸 개발자 IAM 사용자 (member 담당)
+  local_pool_devs = ["sesac-d5"]
 }
 
 resource "aws_cognito_user_pool" "this" {
@@ -60,6 +62,27 @@ resource "aws_cognito_user_pool_client" "member" {
     id_token      = "minutes"
     refresh_token = "days"
   }
+}
+
+# 로컬 풀 Admin API 권한 — AWS 배포는 develop 머지 커밋만 되므로 가입·로그인은 머지 전 로컬에서 확인
+resource "aws_iam_user_policy" "local_pool" {
+  for_each = toset(local.local_pool_devs)
+  name     = "${var.project}-cognito-local-admin"
+  user     = each.value
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:AdminInitiateAuth",
+        "cognito-idp:AdminAddUserToGroup",
+      ]
+      Resource = aws_cognito_user_pool.this["local"].arn
+    }]
+  })
 }
 
 # 앱이 ESO 로 읽을 값 (prod 풀만)
