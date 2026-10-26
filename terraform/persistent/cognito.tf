@@ -6,8 +6,8 @@
 locals {
   user_pools  = { prod = local.name, local = "${var.project}-local" }
   user_groups = ["CUSTOMER", "OWNER", "RIDER"]
-  # 로컬 풀 Admin API 를 쓸 개발자 IAM 사용자 (member 담당)
-  local_pool_devs = ["sesac-d5"]
+  # 로컬 풀 Admin API 를 쓸 개발자 IAM 사용자 (sesac-d1: member 담당, sesac-d5: 인프라)
+  local_pool_devs = ["sesac-d1", "sesac-d5"]
 }
 
 resource "aws_cognito_user_pool" "this" {
