@@ -1,5 +1,7 @@
 # ---------- Cognito (사용자 풀 2개: prod · 로컬 개발) ----------
-#   member 가 InitiateAuth(USER_PASSWORD_AUTH) · SignUp · RevokeToken 을 호출, gateway 는 JWKS 로 access 토큰 검증
+#   가입은 member 만 Admin API 로 (AdminCreateUser → AdminSetUserPassword → AdminAddUserToGroup), self sign-up 막힘
+#   username = member_id · 로그인은 이메일(alias) · 역할 = 그룹 → access 토큰 기본 클레임(username, cognito:groups)만 사용
+#   member 가 AdminInitiateAuth(ADMIN_USER_PASSWORD_AUTH) · RevokeToken 을 호출, gateway 는 JWKS 로 access 토큰 검증
 #   메일은 v1 에서 Cognito 기본 발송(일 50통) — SES 프로덕션 승인 후 email_configuration 을 SES 로 바꿈
 locals {
   user_pools  = { prod = local.name, local = "${var.project}-local" }
@@ -10,9 +12,13 @@ resource "aws_cognito_user_pool" "this" {
   for_each = local.user_pools
   name     = each.value
 
-  username_attributes      = ["email"]
+  alias_attributes         = ["email"] # 바꾸면 풀 재생성 — 사용자 있으면 이전 필요
   auto_verified_attributes = ["email"]
   deletion_protection      = each.key == "prod" ? "ACTIVE" : "INACTIVE"
+
+  admin_create_user_config {
+    allow_admin_create_user_only = true
+  }
 
   password_policy {
     minimum_length    = 8
@@ -42,7 +48,7 @@ resource "aws_cognito_user_pool_client" "member" {
   user_pool_id = aws_cognito_user_pool.this[each.key].id
 
   generate_secret               = false
-  explicit_auth_flows           = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  explicit_auth_flows           = ["ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
   enable_token_revocation       = true
 
