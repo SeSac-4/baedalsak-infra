@@ -13,6 +13,8 @@ locals {
 resource "aws_cognito_user_pool" "this" {
   for_each = local.user_pools
   name     = each.value
+  # 기본 클레임만 써서 Essentials(토큰 커스터마이징) 불필요 — 미지정 시 AWS 가 ESSENTIALS 로 만듦
+  user_pool_tier = "LITE"
 
   alias_attributes         = ["email"] # 바꾸면 풀 재생성 — 사용자 있으면 이전 필요
   auto_verified_attributes = ["email"]
