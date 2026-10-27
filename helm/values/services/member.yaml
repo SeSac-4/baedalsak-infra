@@ -13,5 +13,5 @@ autoscaling:                   # AWS 기준 (로컬은 values/local.yaml 에서 
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
 
-secretKeys:                    # 비밀값 (make secret 이 .env 에서 넣음 / 운영 Secrets Manager)
-  - JWT_SECRET                 # 토큰 서명 키 (gateway 검증·member 발급)
+# secretKeys:                    # 비밀값 (make secret 이 .env 에서 넣음 / 운영 Secrets Manager)
+#   - JWT_SECRET                 # 토큰 서명 키 (gateway 검증·member 발급)

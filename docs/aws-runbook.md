@@ -137,9 +137,14 @@ terraform -chdir=terraform/persistent plan
 | Secrets Manager | 값 | 없으면 |
 |---|---|---|
 | `<SECRET_PREFIX>/github-dispatch` | GitHub fine-grained PAT — 레포 baedalsak-infra, **Actions: Read and write** | 예약 켜기·끄기가 실행 안 됨 (Step Functions 실패 → 알림) |
+| `<SECRET_PREFIX>/seed` | `{"SEED_PASSWORD":"..."}` — prod 풀 seed 사용자 비밀번호 (seed 스크립트만 읽음, 파드에 안 들어감) | prod 풀 seed 실행 불가 |
 
 ```bash
 aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch --secret-string '<PAT>'
+# seed 비밀번호 — 화면·기록에 안 남게 입력
+read -rsp 'SEED_PASSWORD: ' SP; echo
+aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/seed \
+  --secret-string "$(jq -cn --arg p "$SP" '{SEED_PASSWORD:$p}')" --query VersionId --output text; unset SP
 ```
 
 ### 프론트 배포 (baedalsak-client develop → S3)
@@ -229,13 +234,34 @@ aws eks update-kubeconfig --name baedalsak-prod --region ap-northeast-2
 kubectl -n prod get pods; kubectl -n prod logs deploy/order
 ```
 
+### Cognito 인증 (2026-10-27 적용, 이슈 #13 · server #82)
+
+```
+가입:   member ─ AdminCreateUser(username=member_id, MessageAction=SUPPRESS, email_verified=true)
+                → AdminSetUserPassword(Permanent=true) → AdminAddUserToGroup(CUSTOMER|OWNER|RIDER)
+                  실패 시 AdminDeleteUser
+로그인: member ─ AdminInitiateAuth(ADMIN_USER_PASSWORD_AUTH / REFRESH_TOKEN_AUTH) · 로그아웃 RevokeToken
+검증:   gateway ─ JWKS(COGNITO_ISSUER_URI) 로 access 토큰 검증 → username → X-Member-Id, cognito:groups → X-Member-Role
+```
+
+| 항목 | 값 |
+|---|---|
+| 사용자 풀 (`terraform/persistent/cognito.tf`) | `<NAME>`(prod, 삭제 보호) · `<PROJECT>-local`(로컬 개발) — **Lite** 요금제, 이메일은 별칭(alias), self sign-up 끔, 그룹 CUSTOMER·OWNER·RIDER |
+| 앱 클라이언트 | `ALLOW_ADMIN_USER_PASSWORD_AUTH` + `ALLOW_REFRESH_TOKEN_AUTH`, 토큰 폐기 켬, 시크릿 없음, access 30분 · refresh 14일 |
+| 앱 환경 변수 | `deploy.sh` 가 SSM `<SSM_PREFIX>/cognito_*` 를 읽어 주입 — member `COGNITO_USER_POOL_ID`·`COGNITO_CLIENT_ID`, gateway `COGNITO_ISSUER_URI` (`AWS_REGION` 은 차트가 공통 주입) |
+| member 권한 | Pod Identity `prod/member` → 역할 `<NAME>-member-cognito` — prod 풀 Admin 5개(Create·SetPassword·AddToGroup·Delete·InitiateAuth). RevokeToken 은 IAM 불필요 |
+| 매일 정리 | 켜기(up) DB 초기화 직후 `scripts/aws/cognito-cleanup.sh` — prod 풀 **username 1000 이상 삭제** (DB 가 매일 새로 떠 member id 가 1000 부터 재사용) |
+| seed 사용자 | username 1~999 (고객 1·2 · 사장님 101·102 · 라이더 201·202) — prod 풀에 1회 생성 후 유지, 비밀번호 `<SECRET_PREFIX>/seed` |
+| 로컬 풀 | IAM 사용자 `sesac-d1`(member) · `sesac-d5`(인프라) 에 Admin API 권한 — 풀 ID·클라이언트 ID 는 `terraform -chdir=terraform/persistent output` 또는 콘솔 |
+| `JWT_SECRET` | member 는 제거(helm `secretKeys`), gateway 는 #23(JWKS 검증) 머지 전까지 유지 |
+
 ## 4. 오늘 버전에서 설계와 다른 점 (임시)
 
 | 항목 | 설계 | 지금 | 바꿀 때 |
 |---|---|---|---|
 | 진입 | CloudFront 는 persistent | CloudFront 배포·VPC origin 은 **ephemeral** (ALB 와 함께 매일 생성·삭제) → 꺼져 있는 시간엔 도메인도 응답 없음 | 상시 접속이 필요해지면 재검토 |
 | ALB 80 | 443 만 | 80 은 VPC 안 전용으로 남김 (smoke test · Bastion 터널) | 터널을 HTTPS 로 바꾸면 제거 |
-| 인증 | Cognito | 사용자 풀은 생성(SSM `cognito_*`), 앱은 아직 `JWT_SECRET` 사용 | 협의 1·2번 반영 시 앱이 SSM 값 사용 |
+| 인증 | Cognito | member 는 Cognito Admin API 사용(3번 아래 "Cognito 인증" 절), **gateway 는 아직 `JWT_SECRET` 검증** | server #23(JWKS 검증) 머지 후 gateway `JWT_SECRET` 제거 |
 | 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |
 | 토스 키 | Secrets Manager | `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 | 콘솔에서 값 교체 (Terraform 이 덮어쓰지 않음) |
@@ -261,4 +287,8 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 | CloudFront 502 | ALB SG 에 CloudFront-VPCOrigins-Service-SG → 443 규칙, ALB 443 리스너 인증서가 도메인과 같은지 |
 | destroy 가 VPC 에서 멈춤 | VPC origin 이 남긴 ENI·`CloudFront-VPCOrigins-Service-SG` — VPC origin 삭제 완료(수 분) 후 다시 destroy |
 | 예약 켜기·끄기가 안 돎 | 결과 메일의 "GitHub Actions" 부분 (dispatch 오류 코드: 401 토큰 · 404 권한/파일 · 422 입력) · Step Functions `<NAME>-power` 실행 기록 · Lambda `<NAME>-dispatch`·`<NAME>-report` 로그 |
+| member 기동 실패 (Cognito 설정 없음) | member ConfigMap 에 `COGNITO_USER_POOL_ID`·`COGNITO_CLIENT_ID` 가 있는지 (`kubectl -n <ENV_NAME> get cm member -o yaml`), SSM `<SSM_PREFIX>/cognito_*` 존재 |
+| 가입·로그인 503 | member Pod Identity 연결(`aws eks list-pod-identity-associations --cluster-name <NAME>`) · 연결 후 생성된 파드인지(재시작 필요) |
+| 가입이 "이미 존재" 로 실패 | 켜기 로그의 `Cognito 정리` 단계 — username 1000 이상이 지워졌는지 |
+| ephemeral 을 로컬에서 apply 함 | **금지** — EKS `cluster_creator` 가 로컬 IAM 사용자로 바뀌며 Actions 역할의 클러스터 권한이 지워짐(2026-10-27 발생). 적용은 Actions(켜기·plan)로만. 지워졌으면 `aws eks create-access-entry` + `associate-access-policy`(AmazonEKSClusterAdminPolicy) 로 Actions 역할 복구 |
 | destroy 가 TGB 에서 멈춤 | LBC 를 먼저 지운 경우 — `kubectl patch targetgroupbinding <이름> -n <ENV_NAME> -p '{"metadata":{"finalizers":[]}}' --type=merge` |
