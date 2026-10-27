@@ -104,9 +104,24 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
+          mask-aws-account-id: true # 공개 로그에 계정 번호 가림
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-duration-seconds: 7200
+
+      # Secrets Manager 비밀값(비밀번호·토큰·키 — 토스 키·seed 포함)을 이후 모든 로그에서 가림
+      #   *_USER 는 프로젝트 이름과 같아 가리면 로그 전체가 *** 가 되므로 제외
+      - name: mask secrets
+        run: |
+          prefix="${SECRET_PREFIX:-$PROJECT/$ENV_NAME}"
+          for n in $(aws secretsmanager list-secrets --filters Key=name,Values="$prefix/" --query 'SecretList[].Name' --output text); do
+            v="$(aws secretsmanager get-secret-value --secret-id "$n" --query SecretString --output text 2>/dev/null)" || continue
+            if echo "$v" | jq -e 'type == "object"' >/dev/null 2>&1; then
+              echo "$v" | jq -r 'to_entries[] | select(.key | test("PASSWORD|SECRET|TOKEN|KEY")) | .value | tostring'
+            else
+              echo "$v"
+            fi | while IFS= read -r s; do if [ -n "$s" ]; then echo "::add-mask::$s"; fi; done
+          done
 
       - name: terraform init
         run: |
