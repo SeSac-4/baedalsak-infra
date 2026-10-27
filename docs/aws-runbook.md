@@ -272,7 +272,7 @@ kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 909
 | 매일 정리 | 켜기(up) DB 초기화 직후 `scripts/aws/cognito-cleanup.sh` — prod 풀 **username 1000 이상 삭제** (DB 가 매일 새로 떠 member id 가 1000 부터 재사용) |
 | seed 사용자 | username 1~999 (고객 1·2 · 사장님 101·102 · 라이더 201·202) — prod 풀에 1회 생성 후 유지, 비밀번호 `<SECRET_PREFIX>/seed` |
 | 로컬 풀 | IAM 사용자 `sesac-d1`(member) · `sesac-d5`(인프라) 에 Admin API 권한 — 풀 ID·클라이언트 ID 는 `terraform -chdir=terraform/persistent output` 또는 콘솔 |
-| `JWT_SECRET` | member 는 제거(helm `secretKeys`), gateway 는 #23(JWKS 검증) 머지 전까지 유지 |
+| `JWT_SECRET` | gateway·member 모두 제거 (helm `secretKeys` 주석 · persistent `jwt_services = []`) — 토큰 검증은 server #23(Cognito JWKS) |
 
 ## 4. 오늘 버전에서 설계와 다른 점 (임시)
 
@@ -280,7 +280,7 @@ kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 909
 |---|---|---|---|
 | 진입 | CloudFront 는 persistent | CloudFront 배포·VPC origin 은 **ephemeral** (ALB 와 함께 매일 생성·삭제) → 꺼져 있는 시간엔 도메인도 응답 없음 | 상시 접속이 필요해지면 재검토 |
 | ALB 80 | 443 만 | 80 은 VPC 안 전용으로 남김 (smoke test · Bastion 터널) | 터널을 HTTPS 로 바꾸면 제거 |
-| 인증 | Cognito | member 는 Cognito Admin API 사용(3번 아래 "Cognito 인증" 절), **gateway 는 아직 `JWT_SECRET` 검증** | server #23(JWKS 검증) 머지 후 gateway `JWT_SECRET` 제거 |
+| 인증 | Cognito | member 는 Cognito Admin API 사용(3번 아래 "Cognito 인증" 절), gateway `JWT_SECRET` 주입 제거 — **JWKS 검증은 server #23 머지 전까지 미구현** | server #23 머지 |
 | 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |
 | 토스 키 | Secrets Manager | `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 | 콘솔에서 값 교체 (Terraform 이 덮어쓰지 않음) |

@@ -52,7 +52,7 @@ locals {
     delivery = "delivery_svc"
   }
   redis_services = ["gateway", "member"] # REDIS_SESSION_PASSWORD
-  jwt_services   = ["gateway"]           # JWT_SECRET — member 는 Cognito 전환(server #82), gateway 는 #23 까지
+  jwt_services   = []                    # JWT_SECRET — Cognito 전환으로 미사용 (member server #82, gateway helm 주입 제거). 기존 시크릿 값은 ignore_changes 로 남음
   mq_username    = var.project
   db_master_user = "${replace(var.project, "-", "_")}_admin"
 

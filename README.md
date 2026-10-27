@@ -86,7 +86,7 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 | `RABBITMQ_USER/PASSWORD` | 6개 | Secret |
 | `REDIS_SESSION_HOST/PORT` | gateway, member | ConfigMap |
 | `REDIS_SESSION_PASSWORD` | gateway, member | Secret |
-| `JWT_SECRET` | gateway, member (`secretKeys`) | Secret |
+| ~~`JWT_SECRET`~~ | 미사용 (Cognito 전환) — 로컬 `make secret` 은 .env 에 키가 있어야 해서 남겨 둠 | Secret |
 | `TOSS_SECRET_KEY` | payment (`secretKeys`) | Secret |
 | `RABBITMQ_VHOST`, `RABBITMQ_SSL_ENABLED` | RabbitMQ 사용 서비스 (로컬 `/`·false, AWS `/prod`·true) | ConfigMap |
 | ~~`ZIPKIN_ENDPOINT`~~ | 후순위 (관측성) — 차트에서 주석 처리 | ConfigMap |
