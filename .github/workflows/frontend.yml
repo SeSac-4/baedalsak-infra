@@ -31,7 +31,7 @@ concurrency:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
-  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
   CLIENT_REPO: ${{ vars.CLIENT_REPO }}
   CLIENT_REF: ${{ github.event.client_payload.sha || inputs.client_ref || vars.CLIENT_REF }}
   SSM_PREFIX: ${{ vars.SSM_PREFIX || format('/{0}/{1}', vars.PROJECT, vars.ENV_NAME) }}
@@ -47,7 +47,7 @@ jobs:
           BRANCH: ${{ vars.CLIENT_REF }}
         run: |
           : "${AWS_REGION:?레포 변수 AWS_REGION 이 없습니다}"
-          : "${AWS_ROLE_ARN:?레포 변수 AWS_ROLE_ARN 이 없습니다}"
+          : "${AWS_ROLE_ARN:?레포 Secret AWS_ROLE_ARN 이 없습니다}"
           : "${CLIENT_REPO:?레포 변수 CLIENT_REPO 가 없습니다}"
           : "${CLIENT_REF:?입력 client_ref 또는 레포 변수 CLIENT_REF 가 필요합니다}"
           # 외부에서 들어오는 값은 클라이언트 레포 CLIENT_REF 브랜치에 있는 커밋 SHA 만 허용

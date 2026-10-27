@@ -34,7 +34,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   PROJECT: ${{ vars.PROJECT }}
   ENV_NAME: ${{ vars.ENV_NAME }}
-  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
   SERVER_REPO: ${{ vars.SERVER_REPO }}
   SERVER_REF: ${{ github.event.client_payload.sha || inputs.server_ref || vars.SERVER_REF }}
 
@@ -56,7 +56,7 @@ jobs:
           : "${AWS_REGION:?레포 변수 AWS_REGION 이 없습니다}"
           : "${PROJECT:?레포 변수 PROJECT 가 없습니다}"
           : "${ENV_NAME:?레포 변수 ENV_NAME 이 없습니다}"
-          : "${AWS_ROLE_ARN:?레포 변수 AWS_ROLE_ARN 이 없습니다}"
+          : "${AWS_ROLE_ARN:?레포 Secret AWS_ROLE_ARN 이 없습니다}"
           : "${SERVER_REPO:?레포 변수 SERVER_REPO 가 없습니다}"
           : "${SERVER_REF:?입력 server_ref 또는 레포 변수 SERVER_REF 가 필요합니다}"
           # 외부에서 들어오는 값은 커밋 SHA 형식만 허용

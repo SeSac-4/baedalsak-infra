@@ -7,10 +7,10 @@
 #   images.yml         (action=deploy)     : 새 이미지 빌드 후, 클러스터가 켜져 있으면 앱만 배포 → smoke test
 # 동시 실행 방지(concurrency)는 호출하는 쪽에 둠 — 여기에도 같은 group 을 두면 서로 기다리다 멈춤
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
-#   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
+#   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION  (+ 레포 Secret: AWS_ROLE_ARN · TF_STATE_BUCKET)
 #   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
-#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
-#   레포 Secret(선택): ALERT_EMAILS (알림 메일 JSON 배열, 예 ["a@b.com"]) — 공개 로그에 안 남게 Secret 으로 (호출부 secrets: inherit)
+#   선택: TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   레포 Secret(선택): TEAM_MEMBER_ARNS · ALERT_EMAILS (알림 메일 JSON 배열, 예 ["a@b.com"]) — 공개 로그에 안 남게 Secret 으로 (호출부 secrets: inherit)
 # =============================================================================
 name: (공통) AWS 스택 실행
 
@@ -45,8 +45,8 @@ env:
   SECRET_PREFIX: ${{ vars.SECRET_PREFIX }}
   SSM_PREFIX: ${{ vars.SSM_PREFIX }}
   LOG_GROUP: ${{ vars.LOG_GROUP }}
-  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+  TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
   # Terraform 변수 (같은 값을 TF_VAR_* 로)
   TF_IN_AUTOMATION: "true"
   TF_VAR_region: ${{ vars.AWS_REGION }}
@@ -54,12 +54,12 @@ env:
   TF_VAR_env: ${{ vars.ENV_NAME }}
   TF_VAR_azs: ${{ vars.AZS }}
   TF_VAR_kubernetes_version: ${{ vars.KUBERNETES_VERSION }}
-  TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+  TF_VAR_state_bucket: ${{ secrets.TF_STATE_BUCKET }}
   TF_VAR_cluster_name: ${{ vars.CLUSTER_NAME }}
   TF_VAR_secret_prefix: ${{ vars.SECRET_PREFIX }}
   TF_VAR_ssm_prefix: ${{ vars.SSM_PREFIX }}
   TF_VAR_log_group_name: ${{ vars.LOG_GROUP }}
-  TF_VAR_team_member_arns: ${{ vars.TEAM_MEMBER_ARNS || '[]' }}
+  TF_VAR_team_member_arns: ${{ secrets.TEAM_MEMBER_ARNS || '[]' }}
   TF_VAR_team_member_policy: ${{ vars.TEAM_MEMBER_POLICY || 'AmazonEKSAdminViewPolicy' }}
   TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
   TF_VAR_github_repo: ${{ github.repository }}
@@ -89,7 +89,7 @@ jobs:
       - name: check variables
         run: |
           for v in AWS_REGION PROJECT ENV_NAME AWS_ROLE_ARN TF_STATE_BUCKET TF_VAR_azs TF_VAR_kubernetes_version DOMAIN_NAME; do
-            if [ -z "${!v}" ]; then echo "::error::레포 변수가 없습니다: $v (docs/aws-runbook.md 표 참고)"; exit 1; fi
+            if [ -z "${!v}" ]; then echo "::error::레포 변수·Secret 이 없습니다: $v (docs/aws-runbook.md 표 참고)"; exit 1; fi
           done
 
       # 도구 설치는 AWS 자격 증명을 받기 전에 (설치 액션이 자격 증명을 보지 못하게)

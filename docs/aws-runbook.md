@@ -84,7 +84,7 @@ terraform -chdir=terraform/persistent plan
 
 ### GitHub 레포 Variables
 
-레포 → Settings → Secrets and variables → Actions → **Variables** 에 추가 (`.env` 와 같은 이름, `TF_VAR_*` 는 넣지 않음 — 워크플로가 만듦):
+레포 → Settings → Secrets and variables → Actions → **Variables** 에 추가 (`.env` 와 같은 이름, `TF_VAR_*` 는 넣지 않음 — 워크플로가 만듦). 표에서 **Secret** 표시는 **Secrets** 에 — 공개 레포라 계정 번호·메일이 로그에 안 남게:
 
 | 이름 | 필수 | 값 (예시) |
 |---|---|---|
@@ -93,11 +93,11 @@ terraform -chdir=terraform/persistent plan
 | `ENV_NAME` | ✅ | `prod` |
 | `AZS` | ✅ | `["ap-northeast-2a","ap-northeast-2c"]` |
 | `KUBERNETES_VERSION` | ✅ | `1.35` |
-| `TF_STATE_BUCKET` | ✅ | bootstrap output `state_bucket` |
-| `AWS_ROLE_ARN` | ✅ | bootstrap output `github_actions_role_arn` |
+| `TF_STATE_BUCKET` | ✅ **Secret** | bootstrap output `state_bucket` (계정 번호 포함 → 공개 로그 노출 방지로 Secret) |
+| `AWS_ROLE_ARN` | ✅ **Secret** | bootstrap output `github_actions_role_arn` (계정 번호 포함 → Secret) |
 | `SERVER_REPO` | ✅ (images) | `SeSac-4/baedalsak-server` |
 | `SERVER_REF` | ✅ (images) | `develop` — 실행 시 입력 `server_ref` 가 우선 |
-| `TEAM_MEMBER_ARNS` | 선택 | `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) |
+| `TEAM_MEMBER_ARNS` | 선택 **Secret** | `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) |
 | `TEAM_MEMBER_POLICY` | 선택 | `AmazonEKSAdminViewPolicy`(기본, 조회) / `AmazonEKSClusterAdminPolicy` |
 | `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
@@ -219,7 +219,7 @@ jobs:
 1~5 는 internal ALB 가 VPC 안에서만 닿으므로(ALB 80 은 노드·Bastion SG 만 허용) 클러스터 안의 curl 파드로, 공개 경로는 러너에서 확인합니다.
 
 ### 팀원 접속 (평일 10:00~19:00, 켜져 있을 때)
-준비: aws cli + [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), 본인 IAM 키로 `aws configure` (리전 `ap-northeast-2`). EKS 는 레포 변수 `TEAM_MEMBER_ARNS` 에 본인 ARN 이 있어야 함.
+준비: aws cli + [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), 본인 IAM 키로 `aws configure` (리전 `ap-northeast-2`). EKS 는 레포 Secret `TEAM_MEMBER_ARNS` 에 본인 ARN 이 있어야 함.
 ```bash
 ./scripts/aws/tunnel.sh api     # localhost:8080 → internal ALB → gateway (예: curl localhost:8080/api/v1/stores)
 ./scripts/aws/tunnel.sh db      # localhost:15432 → RDS (계정은 Secrets Manager <SECRET_PREFIX>/<서비스>)
@@ -252,7 +252,7 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 
 | 증상 | 확인 |
 |---|---|
-| `AssumeRoleWithWebIdentity` 실패 | 레포 변수 `AWS_ROLE_ARN`, bootstrap 때 `GITHUB_REPO` 가 이 레포(owner/repo)였는지 |
+| `AssumeRoleWithWebIdentity` 실패 | 레포 Secret `AWS_ROLE_ARN`, bootstrap 때 `GITHUB_REPO` 가 이 레포(owner/repo)였는지 |
 | ESO Secret 이 안 생김 | `kubectl -n <ENV_NAME> describe externalsecret <서비스>` — Pod Identity 연결(namespace external-secrets, SA external-secrets) |
 | 서버 머지 후 빌드가 안 돎 | 서버 레포 `notify-infra` 실행 결과 — `INFRA_DISPATCH_TOKEN` 없음/만료/권한(Contents: Read and write) |
 | 파드 CrashLoop | Actions 로그 `debug on failure` 단계 — Flyway(DB 계정) · RabbitMQ vhost(`/<ENV_NAME>`) · Redis TLS |
