@@ -28,6 +28,7 @@ concurrency:
 jobs:
   up:
     uses: ./.github/workflows/aws-stack.yml
+    secrets: inherit
     with:
       action: up
       image_tag: ${{ inputs.image_tag || '' }}

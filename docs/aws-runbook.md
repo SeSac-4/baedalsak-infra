@@ -103,10 +103,9 @@ terraform -chdir=terraform/persistent plan
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
 | `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 끄기 |
 | `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 5) — 넘으면 메일만 |
-| `ALERT_EMAILS` | 선택 | 알림 메일 JSON 배열 — `["seojointly@gmail.com"]` (알람·켜기/끄기 결과·예산). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
 
-**Secrets** (선택): `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
+**Secrets** (선택): `ALERT_EMAILS` — 알림 메일 JSON 배열 `["<메일>@example.com"]` (알람·켜기/끄기 결과·예산). 공개 레포라 Variables 가 아닌 Secret (로그에 `***`). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 / `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
 
 워크플로 버튼(workflow_dispatch)은 **기본 브랜치에 있는 워크플로만** 보입니다. 기본 브랜치(main)에 push 한 뒤 실행하세요.
 

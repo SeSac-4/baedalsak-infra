@@ -9,7 +9,8 @@
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
 #   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION · AWS_ROLE_ARN · TF_STATE_BUCKET
 #   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
-#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · ALERT_EMAILS · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   선택: TEAM_MEMBER_ARNS · TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   레포 Secret(선택): ALERT_EMAILS (알림 메일 JSON 배열, 예 ["a@b.com"]) — 공개 로그에 안 남게 Secret 으로 (호출부 secrets: inherit)
 # =============================================================================
 name: (공통) AWS 스택 실행
 
@@ -65,7 +66,7 @@ env:
   TF_VAR_github_ref: ${{ github.event.repository.default_branch }}
   TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '10' }}
   TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '5' }}
-  TF_VAR_alert_emails: ${{ vars.ALERT_EMAILS || '[]' }}
+  TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }} # 메일 주소는 Secret (공개 로그 노출 방지)
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
 
 jobs:
@@ -73,6 +74,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
+      # 공개 레포라 로그에 남지 않게 — 작업 토큰(Step Functions)·알림 메일 주소 가림
+      #   토큰은 이벤트 파일에서 읽음 (env 로 받으면 이 단계 로그에 먼저 찍힘)
+      - name: mask
+        env:
+          ALERT_EMAILS: ${{ secrets.ALERT_EMAILS }}
+        run: |
+          t="$(jq -r '.inputs.task_token // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$t" ]; then echo "::add-mask::$t"; fi
+          for e in $(echo "${ALERT_EMAILS:-[]}" | jq -r '.[]'); do echo "::add-mask::$e"; done
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: check variables

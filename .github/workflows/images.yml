@@ -113,6 +113,7 @@ jobs:
       group: aws-stack
       cancel-in-progress: false
     uses: ./.github/workflows/aws-stack.yml
+    secrets: inherit
     with:
       action: deploy
       image_tag: ${{ needs.build.outputs.tag }}

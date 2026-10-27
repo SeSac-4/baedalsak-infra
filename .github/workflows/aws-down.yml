@@ -25,6 +25,7 @@ concurrency:
 jobs:
   down:
     uses: ./.github/workflows/aws-stack.yml
+    secrets: inherit
     with:
       action: down
       task_token: ${{ inputs.task_token || '' }}
