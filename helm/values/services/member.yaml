@@ -15,3 +15,8 @@ autoscaling:                   # AWS 기준 (로컬은 values/local.yaml 에서 
 
 # secretKeys:                    # 비밀값 (make secret 이 .env 에서 넣음 / 운영 Secrets Manager)
 #   - JWT_SECRET                 # 토큰 서명 키 (gateway 검증·member 발급)
+
+extraEnv:
+  # 개발용 seed 계정 (server db/seed/R__member_seed.sql — 고객 1·2 / 사장님 101·102 / 라이더 201·202, #17)
+  #   기본값(db/migration)을 덮어쓰므로 migration 도 같이 적는다. 실제 운영 전환 시 이 값 제거
+  SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/seed
