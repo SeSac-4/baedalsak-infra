@@ -154,6 +154,22 @@ resource "aws_secretsmanager_secret_version" "svc" {
   lifecycle { ignore_changes = [secret_string] }
 }
 
+# Grafana admin (monitoring 의 ExternalSecret grafana-admin 이 읽음 — addons.sh)
+resource "random_password" "grafana" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "grafana" {
+  name                    = "${local.secret_prefix}/grafana"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "grafana" {
+  secret_id     = aws_secretsmanager_secret.grafana.id
+  secret_string = jsonencode({ "admin-user" = "admin", "admin-password" = random_password.grafana.result })
+}
+
 # ---------- CloudWatch Logs (Fluent Bit 목적지, 14일) ----------
 resource "aws_cloudwatch_log_group" "containers" {
   name              = local.log_group_name

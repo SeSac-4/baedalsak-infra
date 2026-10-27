@@ -239,6 +239,20 @@ aws eks update-kubeconfig --name baedalsak-prod --region ap-northeast-2
 kubectl -n prod get pods; kubectl -n prod logs deploy/order
 ```
 
+### Grafana · Prometheus (켜져 있을 때, 외부 노출 없음)
+
+`addons.sh` 가 namespace `monitoring` 에 kube-prometheus-stack(`helm/addons/kube-prometheus-stack.yaml`, 차트 92.14.0)을 설치합니다.
+디스크 없음(보존 1일, 끄면 사라짐) · Alertmanager 없음(알람은 CloudWatch → 메일) · 앱 6개의 8081 `/actuator/prometheus` 를 PodMonitor `baedalsak-apps` 로 수집(백엔드가 노출 전이면 대상이 down 으로만 보임).
+
+```bash
+aws eks update-kubeconfig --name baedalsak-prod --region ap-northeast-2
+# admin 비밀번호 (Secrets Manager <SECRET_PREFIX>/grafana, 아이디 admin)
+aws secretsmanager get-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/grafana \
+  --query SecretString --output text | jq -r '."admin-password"'
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80                        # http://localhost:3000
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090   # http://localhost:9090/targets
+```
+
 ### Cognito 인증 (2026-10-27 적용, 이슈 #13 · server #82)
 
 ```

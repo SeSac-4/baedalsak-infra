@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # EKS 애드온 설치 (helm) — terraform ephemeral apply 직후, 앱 배포 전에 실행
-#   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Fluent Bit
+#   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Fluent Bit · Prometheus·Grafana(monitoring)
 #   권한은 Terraform 이 만든 Pod Identity 연결을 그대로 사용 (SA 이름이 같아야 함)
 # 필요: aws cli, kubectl(kubeconfig 설정 완료), helm
 # =============================================================================
@@ -17,6 +17,7 @@ helm repo add eks https://aws.github.io/eks-charts >/dev/null
 helm repo add autoscaler https://kubernetes.github.io/autoscaler >/dev/null
 helm repo add external-secrets https://charts.external-secrets.io >/dev/null
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
@@ -86,5 +87,34 @@ helm upgrade --install aws-for-fluent-bit eks/aws-for-fluent-bit \
   --set cloudWatchLogs.autoCreateGroup=false \
   --wait --timeout 10m
 
+echo "== Prometheus·Grafana (monitoring) — 디스크 없음, 외부 노출 없음"
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+# Grafana admin: Secrets Manager <SECRET_PREFIX>/grafana → Secret grafana-admin (values 에 비밀번호 없음)
+kubectl apply -f - <<EOF
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-admin
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    name: grafana-admin
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: ${SECRET_PREFIX}/grafana
+EOF
+kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=3m
+# 메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm template 로 먼저 확인
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+  -n monitoring --version 92.14.0 \
+  -f "$(dirname "$0")/../../helm/addons/kube-prometheus-stack.yaml" \
+  --wait --timeout 10m
+
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets
+kubectl get pods -n monitoring

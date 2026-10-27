@@ -1,0 +1,65 @@
+# =============================================================================
+# kube-prometheus-stack (namespace monitoring) — scripts/aws/addons.sh 가 설치
+#   디스크 없음(EBS CSI 없음 → PVC 금지): Prometheus·Grafana 모두 emptyDir, 매일 끄기 때 함께 사라짐
+#   알람은 기존 CloudWatch → SNS → 메일 → Alertmanager 끔
+#   Grafana 는 외부 노출 없음(ClusterIP) — kubectl port-forward 로 접속, admin 비밀번호는 ESO Secret grafana-admin
+# =============================================================================
+alertmanager:
+  enabled: false
+
+# EKS 관리형 컨트롤 플레인은 수집 불가 → 대상 down 방지
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    retention: 1d
+    scrapeInterval: 30s
+    # storageSpec 없음 → emptyDir
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 1Gi }
+    # 이 차트가 아닌 PodMonitor·ServiceMonitor 도 수집
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+  # 앱 6개(app.kubernetes.io/part-of=baedalsak) 의 management(8081) /actuator/prometheus
+  #   백엔드가 아직 노출 전이면 대상이 down 으로만 보이고 에러 없음
+  additionalPodMonitors:
+    - name: baedalsak-apps
+      namespaceSelector: { any: true }
+      selector:
+        matchLabels: { app.kubernetes.io/part-of: baedalsak }
+      podTargetLabels: [service]
+      podMetricsEndpoints:
+        - port: management
+          path: /actuator/prometheus
+          interval: 30s
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 64Mi }
+
+grafana:
+  persistence: { enabled: false }
+  service: { type: ClusterIP }
+  ingress: { enabled: false }
+  admin:
+    existingSecret: grafana-admin   # addons.sh 의 ExternalSecret (Secrets Manager <SECRET_PREFIX>/grafana)
+    userKey: admin-user
+    passwordKey: admin-password
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }

@@ -14,6 +14,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | trunc 63 | quote }}
 app.kubernetes.io/part-of: baedalsak
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- /* 지표·로그 라벨용 (Prometheus podTargetLabels) — selector 가 아니라 기존 Deployment 에 그대로 적용됨 */}}
+service: {{ include "svc.name" . }}
 {{- end }}
 
 {{/* 이미지: image.repository 우선, 없으면 [<registry>/]<namespace>/<서비스> */}}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # 끄기 준비 — terraform destroy 전에 실행
-#   앱(helm uninstall) → TargetGroupBinding 0개 확인 → 애드온 삭제
+#   앱(helm uninstall) → TargetGroupBinding 0개 확인 → monitoring 삭제 → 애드온 삭제
 #   LBC 가 TGB 에 finalizer 를 붙이므로 LBC 를 먼저 지우면 TGB 삭제가 멈춤
 # =============================================================================
 set -uo pipefail
@@ -22,6 +22,10 @@ for _ in $(seq 1 30); do
 done
 
 kubectl delete namespace "$NS" --wait --timeout=5m 2>/dev/null || true
+
+echo "== monitoring 삭제 (Prometheus·Grafana)"
+helm uninstall monitoring -n monitoring --wait --timeout 5m 2>/dev/null || true
+kubectl delete namespace monitoring --wait --timeout=5m 2>/dev/null || true
 kubectl delete clustersecretstore aws-secrets-manager --ignore-not-found 2>/dev/null || true
 
 echo "== 애드온 삭제"
