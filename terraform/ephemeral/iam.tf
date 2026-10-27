@@ -115,6 +115,42 @@ resource "aws_eks_pod_identity_association" "ses" {
   role_arn        = aws_iam_role.ses.arn
 }
 
+# ---------- member → Cognito Admin API (가입·로그인, prod 풀만) ----------
+data "aws_ssm_parameter" "cognito_user_pool_id" {
+  name = "${local.ssm_prefix}/cognito_user_pool_id" # persistent/cognito.tf 가 씀
+}
+
+resource "aws_iam_role" "member" {
+  name               = "${local.name}-member-cognito"
+  assume_role_policy = data.aws_iam_policy_document.pod_trust.json
+}
+
+resource "aws_iam_role_policy" "member" {
+  name = "cognito-admin"
+  role = aws_iam_role.member.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:AdminInitiateAuth",
+        "cognito-idp:AdminAddUserToGroup",
+      ]
+      Resource = "arn:aws:cognito-idp:${var.region}:${local.account}:userpool/${nonsensitive(data.aws_ssm_parameter.cognito_user_pool_id.value)}"
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "member" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = local.namespace
+  service_account = "member"
+  role_arn        = aws_iam_role.member.arn
+}
+
 # ---------- Bastion (SSM) ----------
 resource "aws_iam_role" "bastion" {
   name = "${local.name}-bastion"

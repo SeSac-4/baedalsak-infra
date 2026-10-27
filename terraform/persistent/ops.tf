@@ -7,10 +7,17 @@
 #   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
+#     <SECRET_PREFIX>/seed             {"SEED_PASSWORD": "..."} prod 풀 seed 사용자 비밀번호
 # =============================================================================
 
 resource "aws_secretsmanager_secret" "github_dispatch" {
   name                    = "${local.secret_prefix}/github-dispatch"
+  recovery_window_in_days = 0
+}
+
+# prod 풀 seed 사용자 비밀번호 {"SEED_PASSWORD": "..."} — 값은 CLI·콘솔에서 넣음, seed 스크립트만 읽음
+resource "aws_secretsmanager_secret" "seed" {
+  name                    = "${local.secret_prefix}/seed"
   recovery_window_in_days = 0
 }
 

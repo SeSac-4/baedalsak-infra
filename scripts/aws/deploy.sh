@@ -20,6 +20,9 @@ RDS_HOST="$(ssm rds_host)"
 MQ_HOST="$(ssm mq_host)"
 REDIS_HOST="$(ssm redis_host)"
 TG_ARN="$(ssm target_group_arn)"
+COGNITO_POOL_ID="$(ssm cognito_user_pool_id)"
+COGNITO_CLIENT_ID="$(ssm cognito_client_id)"
+COGNITO_ISSUER_URI="$(ssm cognito_issuer_uri)"
 
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 # 새 파드가 ALB 에서 healthy 가 된 뒤 이전 파드 종료 (롤링 배포 중 502 방지)
@@ -40,7 +43,13 @@ for svc in member store order payment delivery gateway; do
               --set autoscaling.targetCPUUtilizationPercentage=70
               --set autoscaling.behavior.scaleUp.stabilizationWindowSeconds=180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — 3분 넘게 높을 때만 확장
               --set pdb.enabled=true --set pdb.minAvailable=1
-              --set targetGroupBinding.enabled=true --set-string targetGroupBinding.targetGroupARN="$TG_ARN") ;;
+              --set targetGroupBinding.enabled=true --set-string targetGroupBinding.targetGroupARN="$TG_ARN"
+              --set-string extraEnv.COGNITO_ISSUER_URI="$COGNITO_ISSUER_URI") ;;
+    member)
+      # Cognito 값이 없으면 member 가 기동하지 않음 (server #82 fail fast)
+      extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1
+              --set-string extraEnv.COGNITO_USER_POOL_ID="$COGNITO_POOL_ID"
+              --set-string extraEnv.COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID") ;;
     *)
       extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1) ;;
   esac
