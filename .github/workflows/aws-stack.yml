@@ -9,7 +9,7 @@
 # 필요한 레포 변수(Settings → Secrets and variables → Actions → Variables): docs/aws-runbook.md 표
 #   필수: AWS_REGION · PROJECT · ENV_NAME · AZS · KUBERNETES_VERSION  (+ 레포 Secret: AWS_ROLE_ARN · TF_STATE_BUCKET)
 #   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
-#   선택: TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
+#   선택: TEAM_MEMBER_POLICY · BUDGET_DAILY_USD · BUDGET_WARN_USD · COST_REPORT_SENDER · COST_TAG_KEY · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · LOG_GROUP
 #   레포 Secret(선택): TEAM_MEMBER_ARNS · ALERT_EMAILS (알림 메일 JSON 배열, 예 ["a@b.com"]) — 공개 로그에 안 남게 Secret 으로 (호출부 secrets: inherit)
 # =============================================================================
 name: (공통) AWS 스택 실행
@@ -67,6 +67,8 @@ env:
   TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '10' }}
   TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '5' }}
   TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }} # 메일 주소는 Secret (공개 로그 노출 방지)
+  TF_VAR_cost_report_sender: ${{ vars.COST_REPORT_SENDER || '' }}
+  TF_VAR_cost_tag_key: ${{ vars.COST_TAG_KEY || 'Stack' }}
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
 
 jobs:

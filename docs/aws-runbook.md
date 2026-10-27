@@ -103,6 +103,8 @@ terraform -chdir=terraform/persistent plan
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
 | `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 끄기 |
 | `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 5) — 넘으면 메일만 |
+| `COST_REPORT_SENDER` | 선택 | 일일 비용 메일 발신 주소 (기본 `cost-report@<DOMAIN_NAME>`) |
+| `COST_TAG_KEY` | 선택 | 일일 비용 메일 ② 표 태그 키 (기본 `Stack`) |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
 
 **Secrets** (선택): `ALERT_EMAILS` — 알림 메일 JSON 배열 `["<메일>@example.com"]` (알람·켜기/끄기 결과·예산). 공개 레포라 Variables 가 아닌 Secret (로그에 `***`). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 / `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
@@ -131,6 +133,9 @@ terraform -chdir=terraform/persistent plan
   - 본문: AWS 상태 확인(켜기: EKS·노드그룹·RDS·`https://<DOMAIN>/api/v1/stores` 응답 / 끄기: 남은 EKS·RDS·MQ·ElastiCache·ALB·NAT·EC2·CloudFront) + GitHub 실행 링크 · 막힌 job·step · 오류 줄 · 로그 마지막 40줄
   - 워크플로가 성공해도 AWS 상태 확인에서 걸리면 FAILED (예: 끄기 후 NAT 가 남음)
 - 일일 비용이 `BUDGET_WARN_USD`(5) 를 넘으면 경고 메일, `BUDGET_DAILY_USD`(10) 를 넘으면 Budgets → Lambda ③ 가 끄기를 실행합니다.
+- **일일 비용 메일**: 매일 09:00 KST Lambda ④ `cost_report` 가 전날 하루 비용(Cost Explorer, 크레딧·환불 차감 전)을 SES 로 보냅니다. 제목 `[배달싹] YYYY-MM-DD 일일 비용 $X.XX`, 표 ① 서비스별 ② 스택 태그별(`Stack` = persistent / ephemeral).
+  - 발신 `cost-report@<DOMAIN_NAME>`(레포 변수 `COST_REPORT_SENDER` 로 변경 가능), 수신 Secret `ALERT_EMAILS` — SES 샌드박스라 수신 주소마다 "Amazon Web Services – Email Address Verification Request" 메일 링크 1회 클릭
+  - 처음 한 번 콘솔: Billing and Cost Management → **Cost Explorer 시작** · **비용 할당 태그** → `Stack` 활성화 (활성화 후 하루 지나야 ② 표가 채워짐, 그 전엔 "집계 전")
 
 ### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
 

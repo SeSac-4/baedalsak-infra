@@ -76,3 +76,21 @@ variable "alert_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "schedule_cost_report" {
+  description = "일일 비용 메일 시각 (EventBridge Scheduler cron, Asia/Seoul) — 전날 하루 비용"
+  type        = string
+  default     = "cron(0 9 * * ? *)"
+}
+
+variable "cost_report_sender" {
+  description = "일일 비용 메일 발신 주소 (COST_REPORT_SENDER). 비우면 cost-report@<domain_name> — SES 도메인 자격으로 발송"
+  type        = string
+  default     = ""
+}
+
+variable "cost_tag_key" {
+  description = "일일 비용 메일 ② 표의 태그 키 (COST_TAG_KEY) — provider default_tags 의 Stack(persistent / ephemeral)"
+  type        = string
+  default     = "Stack"
+}

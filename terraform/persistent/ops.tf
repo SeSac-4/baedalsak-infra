@@ -5,6 +5,7 @@
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
 #   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
+#   비용 메일 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(전날, 크레딧·환불 제외) → SES 메일(서비스별·스택 태그별)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
 #     <SECRET_PREFIX>/seed             {"SEED_PASSWORD": "..."} prod 풀 seed 사용자 비밀번호
@@ -58,11 +59,12 @@ resource "aws_sns_topic_policy" "budget" {
   policy = data.aws_iam_policy_document.budget_topic.json
 }
 
-# ---------- Lambda ① dispatch · ② report · ③ budget_guard ----------
+# ---------- Lambda ① dispatch · ② report · ③ budget_guard · ④ cost_report ----------
 locals {
   state_machine_arn = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power"
   github_env        = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
   read_github_token = { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.github_dispatch.arn }
+  cost_sender       = coalesce(var.cost_report_sender, "cost-report@${var.domain_name}")
   lambdas = {
     dispatch = {
       env        = local.github_env
@@ -89,6 +91,14 @@ locals {
       env        = { STATE_MACHINE_ARN = local.state_machine_arn }
       timeout    = 30
       statements = [{ Effect = "Allow", Action = "states:StartExecution", Resource = local.state_machine_arn }]
+    }
+    cost_report = {
+      env     = { NAME = local.name, SENDER = local.cost_sender, RECIPIENTS = jsonencode(var.alert_emails), TAG_KEY = var.cost_tag_key }
+      timeout = 60
+      statements = [
+        { Effect = "Allow", Action = "ce:GetCostAndUsage", Resource = "*" }, # Cost Explorer 는 리소스 단위 권한 없음
+        { Effect = "Allow", Action = "ses:SendEmail", Resource = aws_sesv2_email_identity.domain.arn },
+      ]
     }
   }
 }
@@ -306,5 +316,31 @@ resource "aws_budgets_budget" "daily" {
     notification_type          = "ACTUAL"
     subscriber_email_addresses = var.alert_emails
     subscriber_sns_topic_arns  = [aws_sns_topic.budget.arn]
+  }
+}
+
+# ---------- 일일 비용 메일 (매일 09:00 KST → Lambda ④) ----------
+resource "aws_iam_role" "scheduler_cost" {
+  name               = "${local.name}-scheduler-cost"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_trust.json
+}
+
+resource "aws_iam_role_policy" "scheduler_cost" {
+  name = "invoke"
+  role = aws_iam_role.scheduler_cost.id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Action = "lambda:InvokeFunction", Resource = aws_lambda_function.this["cost_report"].arn }]
+  })
+}
+
+resource "aws_scheduler_schedule" "cost_report" {
+  name                         = "${local.name}-cost-report"
+  schedule_expression          = var.schedule_cost_report
+  schedule_expression_timezone = "Asia/Seoul"
+  flexible_time_window { mode = "OFF" }
+  target {
+    arn      = aws_lambda_function.this["cost_report"].arn
+    role_arn = aws_iam_role.scheduler_cost.arn
   }
 }
