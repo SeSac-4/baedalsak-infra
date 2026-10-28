@@ -31,7 +31,7 @@ MEMORY     ?= 6g
 # 쿠버네티스 버전: EKS 버전이 정해지면 여기에 고정 (예: v1.33.5). 비우면 minikube 기본값
 K8S_VERSION ?=
 
-# 파드 → compose 의존성(postgres·rabbitmq·redis-session) 주소  (DynamoDB 주석 처리, Zipkin 후순위)
+# 파드 → compose 의존성(postgres·rabbitmq·redis-session) 주소  (DynamoDB 주석 처리)
 #   비우면 helm/values/local.yaml 의 host.minikube.internal 사용 (팀 기본값)
 #   PC 환경에 따라 연결이 안 되면: make dep-host 로 되는 주소 확인 → export DEP_HOST=<주소>
 DEP_HOST   ?=
@@ -51,7 +51,6 @@ HELM := helm --kube-context $(PROFILE) -n $(NS)
 VALUES_LOCAL = -f helm/values/services/$(SVC).yaml -f helm/values/local.yaml \
   $(if $(DEP_HOST),--set global.db.host=$(DEP_HOST) --set global.rabbitmq.host=$(DEP_HOST) \
     --set global.redisSession.host=$(DEP_HOST))
-  # 후순위 (관측성) Zipkin: --set global.zipkin.endpoint=http://$(DEP_HOST):9411/api/v2/spans
   # DynamoDB 주석 처리: --set global.dynamodb.endpoint=http://$(DEP_HOST):8000
 
 .PHONY: need-svc up down delete tunnel secret infra-check dep-host build load deploy dev dev-all \

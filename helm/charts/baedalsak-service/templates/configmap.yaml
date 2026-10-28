@@ -30,9 +30,6 @@
 {{- $_ := set $d "AWS_SECRET_ACCESS_KEY" "local" }}
 {{- end }}
 {{- end }}
-{{- /* 후순위 (관측성) Zipkin — 쓸 때 아래 주석 해제
-{{- with $g.zipkin.endpoint }}{{ $_ := set $d "ZIPKIN_ENDPOINT" . }}{{ end }}
-*/}}
 {{- range $k, $v := .Values.routes }}{{ $_ := set $d $k $v }}{{ end }}
 {{- range $k, $v := .Values.extraEnv }}{{ $_ := set $d $k $v }}{{ end }}
 apiVersion: v1

@@ -35,9 +35,6 @@ global:
   redisSession:                # 세션 Redis (로컬: compose redis-session / 운영: ElastiCache 세션 전용)
     host: ""
     port: 6379
-  # 후순위 (관측성) Zipkin — configmap.yaml 의 ZIPKIN_ENDPOINT 와 함께 주석 해제
-  # zipkin:
-  #   endpoint: ""             # ZIPKIN_ENDPOINT
   # DynamoDB 주석 처리 상태 — 사용 서비스가 생기면 서비스의 dynamodb.enabled: true
   dynamodb:
     endpoint: ""               # 로컬: DynamoDB Local 주소 / 운영: 비움 (SDK 기본 엔드포인트)

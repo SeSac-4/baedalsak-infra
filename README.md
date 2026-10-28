@@ -68,7 +68,7 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 ```
  PC ─(port-forward :18080 / tunnel :80)─▶ Traefik ─/api 제거·X-Forwarded-Prefix 제거─▶ gateway:8080
       gateway ─ /v*/stores/** ─▶ store:8080   ... (order · payment · delivery · member)
-      각 파드 ─ host.minikube.internal ─▶ PC 의 docker compose (postgres · rabbitmq · redis-session)  ※ DynamoDB 주석 처리, Zipkin 후순위
+      각 파드 ─ host.minikube.internal ─▶ PC 의 docker compose (postgres · rabbitmq · redis-session)  ※ DynamoDB 주석 처리
 ```
 
 ## 결정 사항
@@ -100,7 +100,6 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 | ~~`JWT_SECRET`~~ | 미사용 (Cognito 전환) — 로컬 `make secret` 은 .env 에 키가 있어야 해서 남겨 둠 | Secret |
 | `TOSS_SECRET_KEY` | payment (`secretKeys`) | Secret |
 | `RABBITMQ_VHOST`, `RABBITMQ_SSL_ENABLED` | RabbitMQ 사용 서비스 (로컬 `/`·false, AWS `/prod`·true) | ConfigMap |
-| ~~`ZIPKIN_ENDPOINT`~~ | 사용 안 함 — 추적은 OpenTelemetry → Tempo (아래) | — |
 | `DYNAMODB_ENDPOINT`, `AWS_REGION` (+로컬 더미 키) | `dynamodb.enabled: true` 인 서비스 (**주석 처리 — 현재 없음**) | ConfigMap |
 | `STORE_SERVICE_URL` … `MEMBER_SERVICE_URL` | gateway | ConfigMap |
 | `ORDER_SERVICE_URL` | payment (결제 요청 생성 시 주문 조회) | ConfigMap |

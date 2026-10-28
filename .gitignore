@@ -52,8 +52,7 @@ override.tf.json
 Thumbs.db
 desktop.ini
 
-# ---------- Claude Code 개인 설정 ----------
-# .claude/settings.json · hooks 는 팀 공용이라 커밋함
+# ---------- 개인 작업 도구 설정 ----------
 .claude/settings.local.json
 CLAUDE.local.md
 .claude/**
