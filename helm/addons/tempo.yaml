@@ -1,0 +1,34 @@
+# =============================================================================
+# Tempo (namespace monitoring) — scripts/aws/addons.sh 가 설치, 앱이 OTLP(HTTP 4318)로 추적을 보냄
+#   파드 1개(single binary) — Loki 와 같은 최소 구성
+#   저장: S3 (persistent 버킷, Pod Identity <NAME>-tempo) → 클러스터를 매일 지워도 14일 보관
+#   버킷 이름·리전은 addons.sh 가 --set 으로 넘김 (SSM <SSM_PREFIX>/tempo_bucket)
+#   앱 전송 주소는 deploy.sh 가 주입: http://tempo.monitoring.svc.cluster.local:4318/v1/traces
+# =============================================================================
+tempo:
+  retention: 336h                # 14일 — backend worker 가 지움 (Tempo 3 은 compactor 대신 backend scheduler·worker)
+  reportingEnabled: false        # Grafana 사용 통계 전송 끔
+  storage:
+    trace:
+      backend: s3
+      s3:
+        endpoint: s3.ap-northeast-2.amazonaws.com   # addons.sh 가 리전으로 덮어씀
+        native_aws_auth_enabled: true               # AWS SDK 기본 자격 증명 = Pod Identity
+      wal:
+        path: /var/tempo/wal     # 컨테이너 디스크 — 아직 S3 로 못 올린 추적은 파드 재시작 시 유실 (Loki 와 같음)
+  # 앱은 OTLP HTTP 4318 사용 (Spring Boot starter 기본). 차트 기본 jaeger 수신은 차트가 필수로 요구해 그대로 둠(클러스터 안 전용)
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+persistence: { enabled: false }  # PVC 없음 (EBS CSI 없음)
+
+serviceAccount:
+  name: tempo                    # terraform/ephemeral/iam.tf Pod Identity

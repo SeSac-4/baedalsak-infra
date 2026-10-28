@@ -208,6 +208,45 @@ resource "aws_ssm_parameter" "loki_bucket" {
   value = aws_s3_bucket.loki.bucket
 }
 
+# ---------- Tempo 저장소 (추적, 앱 OTLP → Tempo → S3) — Loki 와 같은 구성 ----------
+resource "aws_s3_bucket" "tempo" {
+  bucket        = "${local.name}-tempo-${local.account}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "tempo" {
+  bucket                  = aws_s3_bucket.tempo.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "tempo" {
+  bucket = aws_s3_bucket.tempo.id
+  rule {
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+  }
+}
+
+# 보관은 Tempo compactor 가 14일(336h)로 지움 — 하루 여유는 Loki 와 같은 이유
+resource "aws_s3_bucket_lifecycle_configuration" "tempo" {
+  bucket = aws_s3_bucket.tempo.id
+  rule {
+    id     = "expire-15d"
+    status = "Enabled"
+    filter {}
+    expiration { days = 15 }
+  }
+}
+
+# addons.sh 가 읽음 (Tempo 차트 storage.trace.s3.bucket)
+resource "aws_ssm_parameter" "tempo_bucket" {
+  name  = "${local.ssm_prefix}/tempo_bucket"
+  type  = "String"
+  value = aws_s3_bucket.tempo.bucket
+}
+
 # ---------- RDS 파라미터 그룹 (KST · 슬로우 쿼리 1초 · pg_stat_statements) ----------
 resource "aws_db_parameter_group" "pg16" {
   name   = "${local.name}-pg16"
@@ -270,6 +309,10 @@ output "db_parameter_group" {
 
 output "loki_bucket_arn" {
   value = aws_s3_bucket.loki.arn
+}
+
+output "tempo_bucket_arn" {
+  value = aws_s3_bucket.tempo.arn
 }
 
 # ---------- ephemeral 이 쓰는 값 (dns · frontend · audit · ops) ----------

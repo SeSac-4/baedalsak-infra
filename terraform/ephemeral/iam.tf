@@ -88,6 +88,31 @@ resource "aws_eks_pod_identity_association" "loki" {
   role_arn        = aws_iam_role.loki.arn
 }
 
+# ---------- Tempo → S3 (추적 저장소, 버킷은 persistent) — 앱은 클러스터 안 Tempo 로만 보내 AWS 권한 없음 ----------
+resource "aws_iam_role" "tempo" {
+  name               = "${local.name}-tempo"
+  assume_role_policy = data.aws_iam_policy_document.pod_trust.json
+}
+
+resource "aws_iam_role_policy" "tempo" {
+  name = "s3-tempo"
+  role = aws_iam_role.tempo.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.p.tempo_bucket_arn },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.p.tempo_bucket_arn}/*" },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "tempo" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = "monitoring"
+  service_account = "tempo" # helm/addons/tempo.yaml serviceAccount.name
+  role_arn        = aws_iam_role.tempo.arn
+}
+
 # ---------- Grafana → CloudWatch 데이터소스 (로그 Insights · 지표 조회, 읽기 전용) ----------
 resource "aws_iam_role" "grafana" {
   name               = "${local.name}-grafana"

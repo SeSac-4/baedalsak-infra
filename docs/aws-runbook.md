@@ -42,7 +42,7 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
 | `helm/values/aws.yaml` | 비워 두고 `deploy.sh` 가 `--set` |
 
 이름 규칙 (Terraform·스크립트·워크플로 공통): 리소스 `<PROJECT>-<ENV_NAME>` · Secrets Manager `<PROJECT>/<ENV_NAME>/*` ·
-SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
+SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · Tempo 버킷 `<PROJECT>-<ENV_NAME>-tempo-<계정>` · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
 `CLUSTER_NAME`·`SECRET_PREFIX`·`SSM_PREFIX` 를 넣으면 그 값이 규칙보다 우선합니다 (로컬·GitHub 에 같은 값을 넣을 것).
 
 ## 1. 처음 한 번 — bootstrap (WSL2, 로컬)
@@ -256,6 +256,9 @@ kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 909
 - 앱 로그: Grafana → Explore → 데이터소스 **Loki** → 예 `{namespace="prod", service="payment", level="ERROR"}`, traceId 는 `|= "<traceId>"` 로 본문 검색
   - 경로: 파드 stdout → Fluent Bit(kube-system) → Loki(monitoring, 파드 1개) → S3 `<NAME>-loki-<계정>` 14일. 클러스터가 꺼진 시간(평일 19:00~09:30·주말)엔 조회 불가, 다음 켜기 때 지난 로그 그대로 조회
   - 라벨은 `namespace`·`service`·`level` 만 (늘리면 Loki 인덱스가 커짐)
+- 추적: 데이터소스 **Tempo** → traceId 로 검색 (로그의 traceId 를 복사)
+  - 경로: 앱(OTel) → `http://tempo.monitoring.svc.cluster.local:4318/v1/traces` (deploy.sh 가 `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` 로 주입) → Tempo(monitoring, 파드 1개) → S3 `<NAME>-tempo-<계정>` 14일
+  - 백엔드가 Brave → OpenTelemetry 로 바꾸기 전에는 추적이 들어오지 않음 (주입한 주소는 무시됨)
 - AWS 서비스 로그·지표: 데이터소스 **CloudWatch** (Lambda·Step Functions 로그, RDS·MQ 지표 — 권한 Pod Identity `<NAME>-grafana`, CloudWatchReadOnlyAccess)
 
 ### Cognito 인증 (2026-10-27 적용, 이슈 #13 · server #82)

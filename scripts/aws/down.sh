@@ -23,10 +23,11 @@ done
 
 kubectl delete namespace "$NS" --wait --timeout=5m 2>/dev/null || true
 
-echo "== monitoring 삭제 (Prometheus·Grafana · Loki)"
+echo "== monitoring 삭제 (Prometheus·Grafana · Loki · Tempo)"
 helm uninstall monitoring -n monitoring --wait --timeout 5m 2>/dev/null || true
 # Loki 는 종료 시 메모리의 로그를 S3 로 내보냄 (앱 종료 로그까지 들어온 뒤라 유실 없음)
 helm uninstall loki -n monitoring --wait --timeout 5m 2>/dev/null || true
+helm uninstall tempo -n monitoring --wait --timeout 5m 2>/dev/null || true
 kubectl delete namespace monitoring --wait --timeout=5m 2>/dev/null || true
 kubectl delete clustersecretstore aws-secrets-manager aws-parameter-store --ignore-not-found 2>/dev/null || true
 

@@ -19,6 +19,7 @@ helm repo add external-secrets https://charts.external-secrets.io >/dev/null
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
+helm repo add grafana-community https://grafana-community.github.io/helm-charts >/dev/null # Tempo 차트 이전처 (grafana/tempo 는 지원 종료)
 helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
@@ -95,6 +96,15 @@ helm upgrade --install loki grafana/loki \
   --set-string loki.storage.bucketNames.ruler="$LOKI_BUCKET" \
   --set-string loki.storage.bucketNames.admin="$LOKI_BUCKET" \
   --set-string loki.storage.s3.region="$REGION" \
+  --wait --timeout 10m
+
+echo "== Tempo (monitoring) — 추적 저장소, S3 14일"
+TEMPO_BUCKET="$(ssm tempo_bucket)"
+helm upgrade --install tempo grafana-community/tempo \
+  -n monitoring --version 3.2.1 \
+  -f "$(dirname "$0")/../../helm/addons/tempo.yaml" \
+  --set-string tempo.storage.trace.s3.bucket="$TEMPO_BUCKET" \
+  --set-string tempo.storage.trace.s3.endpoint="s3.${REGION}.amazonaws.com" \
   --wait --timeout 10m
 
 echo "== Fluent Bit → Loki"

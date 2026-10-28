@@ -20,6 +20,8 @@ RDS_HOST="$(ssm rds_host)"
 MQ_HOST="$(ssm mq_host)"
 REDIS_HOST="$(ssm redis_host)"
 TG_ARN="$(ssm target_group_arn)"
+# 추적 전송 주소 (helm/addons/tempo.yaml) — 앱이 OTel 로 바뀌기 전에는 쓰이지 않음
+OTLP_TRACES="http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 # 새 파드가 ALB 에서 healthy 가 된 뒤 이전 파드 종료 (롤링 배포 중 502 방지)
@@ -59,6 +61,7 @@ for svc in member store order payment delivery gateway; do
     --set-string global.db.host="$RDS_HOST" \
     --set-string global.rabbitmq.host="$MQ_HOST" \
     --set-string global.redisSession.host="$REDIS_HOST" \
+    --set-string extraEnv.MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT="$OTLP_TRACES" \
     --set-string image.tag="$TAG" \
     "${extra[@]}"
 done
