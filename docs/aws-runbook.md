@@ -128,7 +128,7 @@ terraform -chdir=terraform/persistent plan
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
-- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 `ALERT_EMAILS` 로 메일을 보냅니다.
+- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 **실패일 때만** `ALERT_EMAILS` 로 메일을 보냅니다 (성공은 Step Functions 실행 기록·GitHub Actions 에서 확인).
   - 제목 `[baedalsak-prod] AWS up|down OK|FAILED`
   - 본문: AWS 상태 확인(켜기: EKS·노드그룹·RDS·`https://<DOMAIN>/api/v1/stores` 응답 / 끄기: 남은 EKS·RDS·MQ·ElastiCache·ALB·NAT·EC2·CloudFront) + GitHub 실행 링크 · 막힌 job·step · 오류 줄 · 로그 마지막 40줄
   - 워크플로가 성공해도 AWS 상태 확인에서 걸리면 FAILED (예: 끄기 후 NAT 가 남음)

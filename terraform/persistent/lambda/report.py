@@ -158,6 +158,7 @@ def handler(event, _context):
     except Exception as e:
         checks = [(False, f"AWS 상태 확인 실패: {e}")]
     ok, message = build_message(action, started, error, gh_lines, checks)
-    # SNS 메일 제목은 ASCII 만 허용
-    boto3.client("sns").publish(TopicArn=os.environ["TOPIC_ARN"], Subject=f"[{NAME}] AWS {action} {'OK' if ok else 'FAILED'}", Message=message)
+    # 성공은 메일 없이 Step Functions·Lambda 로그로만 남김 (실패만 알림). SNS 메일 제목은 ASCII 만 허용
+    if not ok:
+        boto3.client("sns").publish(TopicArn=os.environ["TOPIC_ARN"], Subject=f"[{NAME}] AWS {action} FAILED", Message=message)
     return {"ok": ok}
