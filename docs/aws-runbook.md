@@ -291,7 +291,7 @@ kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 909
 | 인증 | Cognito | member 는 Cognito Admin API 사용(3번 아래 "Cognito 인증" 절), gateway `JWT_SECRET` 주입 제거 — **JWKS 검증은 server #23 머지 전까지 미구현** | server #23 머지 |
 | 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |
-| 토스 키 | Secrets Manager | `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 | 콘솔에서 값 교체 (Terraform 이 덮어쓰지 않음) |
+| 토스 키 | Secrets Manager | 시크릿 키: `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 · 클라이언트 키: SSM `<SSM_PREFIX>/toss_client_key` 가 토스 문서용 테스트 키(프론트 빌드 때 읽음) | 둘 다 콘솔에서 **같은 토스 계정의 짝**으로 교체 (Terraform 이 덮어쓰지 않음) → 클라이언트 키를 바꾸면 "프론트 배포" 다시 실행 |
 | Redis TLS | 앱 설정 | `SPRING_DATA_REDIS_SSL_ENABLED=true` 환경 변수로 켬 | 협의 6번 (`REDIS_SESSION_SSL_ENABLED`) 반영 시 교체 |
 
 ## 5. 도메인 (baedalsak.click — 구매 완료 2026-10-22)

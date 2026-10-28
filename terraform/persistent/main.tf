@@ -247,6 +247,16 @@ resource "aws_ssm_parameter" "tempo_bucket" {
   value = aws_s3_bucket.tempo.bucket
 }
 
+# ---------- 토스 클라이언트 키 (프론트 빌드 VITE_TOSS_CLIENT_KEY, frontend.yml 이 읽음) ----------
+#   브라우저에 노출되는 공개 키라 String. 시크릿 키(Secrets Manager <SECRET_PREFIX>/payment)와 같은 토스 계정의 짝으로 맞출 것
+#   기본값은 토스 문서용 테스트 키 — 콘솔에서 바꾼 값을 다음 apply 가 덮어쓰지 않게
+resource "aws_ssm_parameter" "toss_client_key" {
+  name  = "${local.ssm_prefix}/toss_client_key"
+  type  = "String"
+  value = "test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm"
+  lifecycle { ignore_changes = [value] }
+}
+
 # ---------- RDS 파라미터 그룹 (KST · 슬로우 쿼리 1초 · pg_stat_statements) ----------
 resource "aws_db_parameter_group" "pg16" {
   name   = "${local.name}-pg16"
