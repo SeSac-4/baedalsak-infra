@@ -52,6 +52,8 @@ global:
     enabled: false
     store: ""                  # ClusterSecretStore 이름
     keyPrefix: ""              # Secrets Manager 키 = <keyPrefix>/<서비스>
+    ssmStore: ""               # SSM Parameter Store 용 ClusterSecretStore 이름 (externalSecretSsm 쓸 때)
+    ssmPrefix: ""              # SSM 파라미터 = <ssmPrefix>/<이름>
     refreshInterval: 1h
 
   irsaRoleArnFormat: ""        # 운영 IRSA 역할 ARN 형식 (%s = 서비스명)
@@ -74,6 +76,7 @@ dynamodb:
 routes: {}                     # gateway 전용: STORE_SERVICE_URL 등
 secretKeys: []                 # 그 밖의 비밀값 — Secret 의 같은 이름 키를 주입 (gateway·member: JWT_SECRET, payment: TOSS_SECRET_KEY)
 externalSecretFrom: {}         # 운영: 다른 Secrets Manager 시크릿의 키도 Secret 에 담음 {키: <keyPrefix 뒤 이름>} — 예 { SEED_PASSWORD: seed }, 주입하려면 secretKeys 에도 추가
+externalSecretSsm: {}          # 운영: SSM 파라미터를 Secret 에 담아 같은 이름 환경 변수로 주입 {변수: <ssmPrefix 뒤 이름>} — 예 { COGNITO_USER_POOL_ID: cognito_user_pool_id }
 extraEnv: {}                   # 그 밖의 환경 변수 (비밀값 금지)
 
 image:

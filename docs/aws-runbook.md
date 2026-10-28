@@ -269,7 +269,7 @@ kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 909
 |---|---|
 | 사용자 풀 (`terraform/persistent/cognito.tf`) | `<NAME>`(prod, 삭제 보호) · `<PROJECT>-local`(로컬 개발) — **Lite** 요금제, 이메일은 별칭(alias), self sign-up 끔, 그룹 CUSTOMER·OWNER·RIDER |
 | 앱 클라이언트 | `ALLOW_ADMIN_USER_PASSWORD_AUTH` + `ALLOW_REFRESH_TOKEN_AUTH`, 토큰 폐기 켬, 시크릿 없음, access 30분 · refresh 14일 |
-| 앱 환경 변수 | `deploy.sh` 가 SSM `<SSM_PREFIX>/cognito_*` 를 읽어 주입 — member `COGNITO_USER_POOL_ID`·`COGNITO_CLIENT_ID`, gateway `COGNITO_ISSUER_URI` (`AWS_REGION` 은 차트가 공통 주입) |
+| 앱 환경 변수 | ESO 가 SSM `<SSM_PREFIX>/cognito_*` 를 서비스 Secret 에 담아 주입 (ClusterSecretStore `aws-parameter-store`, 값 `externalSecretSsm`) — member `COGNITO_USER_POOL_ID`·`COGNITO_CLIENT_ID`, gateway `COGNITO_ISSUER_URI` (`AWS_REGION` 은 차트가 공통 주입) |
 | member 권한 | Pod Identity `prod/member` → 역할 `<NAME>-member-cognito` — prod 풀 Admin 5개(Create·SetPassword·AddToGroup·Delete·InitiateAuth). RevokeToken 은 IAM 불필요 |
 | 매일 정리 | 켜기(up) DB 초기화 직후 `scripts/aws/cognito-cleanup.sh` — prod 풀 **username 1000 이상 삭제** (DB 가 매일 새로 떠 member id 가 1000 부터 재사용) |
 | seed 사용자 | username 1~999 (고객 1·2 · 사장님 101·102 · 라이더 201·202) — prod 풀에 1회 생성 후 유지, 비밀번호 `<SECRET_PREFIX>/seed` |

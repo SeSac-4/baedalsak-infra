@@ -33,7 +33,7 @@ service: {{ include "svc.name" . }}
 
 {{/* 비밀번호가 필요한 서비스인지 */}}
 {{- define "svc.needsSecret" -}}
-{{- if or .Values.db.enabled .Values.rabbitmq.enabled .Values.redisSession.enabled .Values.secretKeys }}true{{ end }}
+{{- if or .Values.db.enabled .Values.rabbitmq.enabled .Values.redisSession.enabled .Values.secretKeys (and .Values.global.externalSecret.enabled .Values.externalSecretSsm) }}true{{ end }}
 {{- end }}
 
 {{/* 비밀번호 Secret 이름: 운영(ExternalSecret)은 서비스별, 로컬은 공용 */}}

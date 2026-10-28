@@ -66,6 +66,17 @@ spec:
     aws:
       service: SecretsManager
       region: ${REGION}
+---
+# SSM 파라미터 (앱 차트 externalSecretSsm — 예 Cognito 풀 ID). 권한은 같은 controller Pod Identity
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: aws-parameter-store
+spec:
+  provider:
+    aws:
+      service: ParameterStore
+      region: ${REGION}
 EOF
 
 echo "== metrics-server"

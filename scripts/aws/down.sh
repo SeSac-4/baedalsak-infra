@@ -26,7 +26,7 @@ kubectl delete namespace "$NS" --wait --timeout=5m 2>/dev/null || true
 echo "== monitoring 삭제 (Prometheus·Grafana)"
 helm uninstall monitoring -n monitoring --wait --timeout 5m 2>/dev/null || true
 kubectl delete namespace monitoring --wait --timeout=5m 2>/dev/null || true
-kubectl delete clustersecretstore aws-secrets-manager --ignore-not-found 2>/dev/null || true
+kubectl delete clustersecretstore aws-secrets-manager aws-parameter-store --ignore-not-found 2>/dev/null || true
 
 echo "== 애드온 삭제"
 helm uninstall aws-for-fluent-bit -n kube-system 2>/dev/null || true

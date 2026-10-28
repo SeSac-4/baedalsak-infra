@@ -85,6 +85,12 @@ spec:
             - name: {{ . }}
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ . }} } }
             {{- end }}
+            {{- if .Values.global.externalSecret.enabled }}
+            {{- range $k, $_ := .Values.externalSecretSsm }}
+            - name: {{ $k }}
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $k }} } }
+            {{- end }}
+            {{- end }}
           {{- end }}
           startupProbe:
             {{- toYaml .Values.probes.startup | nindent 12 }}
