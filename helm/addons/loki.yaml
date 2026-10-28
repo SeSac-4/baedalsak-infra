@@ -12,7 +12,7 @@ loki:
     replication_factor: 1
   schemaConfig:
     configs:
-      - from: "2026-10-01"
+      - from: "2026-10-28"         # 처음 띄운 날 — 과거·당일만 가능 (미래면 그 전 로그를 받을 스키마가 없음)
         store: tsdb              # 인덱스 형식 (Loki 3 기본) — 인덱스도 S3 에 저장
         object_store: s3
         schema: v13
