@@ -22,3 +22,6 @@ ingress:
 
 # secretKeys:                    # 비밀값 (make secret 이 .env 에서 넣음 / 운영 Secrets Manager)
 #   - JWT_SECRET                 # 토큰 서명 키 (gateway 검증·member 발급)
+
+externalSecretSsm:
+  COGNITO_ISSUER_URI: cognito_issuer_uri
