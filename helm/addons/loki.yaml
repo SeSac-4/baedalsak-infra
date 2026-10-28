@@ -29,6 +29,9 @@ loki:
 singleBinary:
   replicas: 1
   persistence: { enabled: false }   # PVC 없음 — 아직 S3 로 못 올린 로그(WAL)는 파드 재시작 시 유실
+  # PVC 를 끄면 차트가 /var/loki 를 마운트하지 않음 → 읽기 전용 루트에서 기동 실패. 작업 디렉터리를 emptyDir 로
+  extraVolumes: [{ name: data, emptyDir: {} }]
+  extraVolumeMounts: [{ name: data, mountPath: /var/loki }]
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }
