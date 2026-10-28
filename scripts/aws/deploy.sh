@@ -4,6 +4,7 @@
 #   values: 차트 기본값 → services/<서비스>.yaml → aws.yaml → 아래 --set
 #   gateway: replica 2 · HPA 2~4(CPU 70%, 확장은 3분 지속 시) · PDB · TargetGroupBinding
 #   order·payment: 1 (HPA 1~3 은 부하 테스트 시점) / member·store·delivery: 1
+#   DB 쓰는 5개: Hikari 연결 풀 5 (RDS 연결 수 한도)
 # =============================================================================
 set -euo pipefail
 
@@ -44,7 +45,10 @@ for svc in member store order payment delivery gateway; do
               --set pdb.enabled=true --set pdb.minAvailable=1
               --set targetGroupBinding.enabled=true --set-string targetGroupBinding.targetGroupARN="$TG_ARN") ;;
     *)
-      extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1) ;;
+      # DB 쓰는 5개: 연결 풀 5 (기본 10) — 배포 중 이전·새 파드가 겹쳐도 Σ(파드 × 풀) × 2 = 50 < RDS max_connections(t4g.micro 약 80)
+      #   필요량 ≈ 최고 TPS × 쿼리 평균 시간(초) + 여유 = 50 × 0.05 ≈ 3 → 5 (AWS 만 적용, 로컬은 앱 기본값)
+      extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1
+              --set-string extraEnv.SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=5) ;;
   esac
 
   echo "== $svc"
