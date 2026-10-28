@@ -1,0 +1,48 @@
+# =============================================================================
+# Loki (namespace monitoring) — scripts/aws/addons.sh 가 설치, Fluent Bit 가 앱 로그를 보냄
+#   파드 1개(SingleBinary) · 복제 1 — 개발 단계 최소 구성
+#   저장: S3 (persistent 버킷, Pod Identity <NAME>-loki) → 클러스터를 매일 지워도 14일 보관
+#   버킷 이름·리전은 addons.sh 가 --set 으로 넘김 (SSM <SSM_PREFIX>/loki_bucket)
+# =============================================================================
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false            # 테넌트 1개
+  commonConfig:
+    replication_factor: 1
+  schemaConfig:
+    configs:
+      - from: "2026-10-01"
+        store: tsdb              # 인덱스 형식 (Loki 3 기본) — 인덱스도 S3 에 저장
+        object_store: s3
+        schema: v13
+        index: { prefix: index_, period: 24h }
+  storage:
+    type: s3
+    s3: {}                       # region 은 addons.sh, 자격 증명은 Pod Identity (SDK 기본)
+  limits_config:
+    retention_period: 336h       # 14일
+  compactor:
+    retention_enabled: true      # 오래된 로그 삭제는 compactor 가 함
+    delete_request_store: s3
+
+singleBinary:
+  replicas: 1
+  persistence: { enabled: false }   # PVC 없음 — 아직 S3 로 못 올린 로그(WAL)는 파드 재시작 시 유실
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+serviceAccount:
+  name: loki                     # terraform/ephemeral/iam.tf Pod Identity
+
+# SingleBinary 외 구성요소 끔
+read: { replicas: 0 }
+write: { replicas: 0 }
+backend: { replicas: 0 }
+gateway: { enabled: false }      # 앞단 nginx — 파드 1개라 Fluent Bit·Grafana 가 loki:3100 으로 직접 접속
+chunksCache: { enabled: false }  # memcached 캐시 — 조회량 적어 불필요
+resultsCache: { enabled: false }
+lokiCanary: { enabled: false }
+test: { enabled: false }
+minio: { enabled: false }

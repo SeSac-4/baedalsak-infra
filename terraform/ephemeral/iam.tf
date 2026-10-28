@@ -52,7 +52,7 @@ module "eso_pod_identity" {
   }
 }
 
-# ---------- Fluent Bit → CloudWatch Logs ----------
+# ---------- Pod Identity 공통 신뢰 정책 ----------
 data "aws_iam_policy_document" "pod_trust" {
   statement {
     actions = ["sts:AssumeRole", "sts:TagSession"]
@@ -63,29 +63,29 @@ data "aws_iam_policy_document" "pod_trust" {
   }
 }
 
-resource "aws_iam_role" "fluent_bit" {
-  name               = "${local.name}-fluent-bit"
+# ---------- Loki → S3 (앱 로그 저장소, 버킷은 persistent) — Fluent Bit 는 클러스터 안 Loki 로만 보내 AWS 권한 없음 ----------
+resource "aws_iam_role" "loki" {
+  name               = "${local.name}-loki"
   assume_role_policy = data.aws_iam_policy_document.pod_trust.json
 }
 
-resource "aws_iam_role_policy" "fluent_bit" {
-  name = "cloudwatch-logs"
-  role = aws_iam_role.fluent_bit.id
+resource "aws_iam_role_policy" "loki" {
+  name = "s3-loki"
+  role = aws_iam_role.loki.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams", "logs:DescribeLogGroups"]
-      Resource = "*"
-    }]
+    Statement = [
+      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.p.loki_bucket_arn },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.p.loki_bucket_arn}/*" },
+    ]
   })
 }
 
-resource "aws_eks_pod_identity_association" "fluent_bit" {
+resource "aws_eks_pod_identity_association" "loki" {
   cluster_name    = module.eks.cluster_name
-  namespace       = "kube-system"
-  service_account = "aws-for-fluent-bit"
-  role_arn        = aws_iam_role.fluent_bit.arn
+  namespace       = "monitoring"
+  service_account = "loki" # helm/addons/loki.yaml serviceAccount.name
+  role_arn        = aws_iam_role.loki.arn
 }
 
 # ---------- Grafana → CloudWatch 데이터소스 (로그 Insights · 지표 조회, 읽기 전용) ----------

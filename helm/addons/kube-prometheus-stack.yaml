@@ -65,8 +65,11 @@ grafana:
     limits: { memory: 384Mi }
   # 권한은 Pod Identity <NAME>-grafana (CloudWatchReadOnlyAccess) — terraform/ephemeral/iam.tf
   serviceAccount: { name: grafana }
-  # 앱 로그(Fluent Bit → CloudWatch Logs) 를 Logs Insights 로, RDS·MQ 등 AWS 지표도 같이 조회
+  # 앱 로그는 Loki, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring.svc.cluster.local:3100   # helm/addons/loki.yaml (gateway 없음)
     - name: CloudWatch
       type: cloudwatch
       jsonData:

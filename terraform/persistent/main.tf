@@ -1,6 +1,6 @@
 # =============================================================================
 # persistent — 매일 destroy 하지 않는 스택
-#   ECR · Secrets Manager(비밀값·DB 마스터 비밀번호) · CloudWatch 로그 그룹 · RDS 파라미터 그룹
+#   ECR · Secrets Manager(비밀값·DB 마스터 비밀번호) · Loki 로그 버킷 · RDS 파라미터 그룹
 #   dns.tf      Route 53 존(도메인 구매 시 자동 생성 → 참조) · ACM ①(us-east-1) ②(서울)
 #   frontend.tf S3 프론트 · OAC · CF Function   (CloudFront 배포 자체는 ALB 와 함께 ephemeral/edge.tf)
 #   cognito.tf · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 → 메일 · 켜기/끄기 자동화 · Budgets)
@@ -56,10 +56,9 @@ locals {
   mq_username    = var.project
   db_master_user = "${replace(var.project, "-", "_")}_admin"
 
-  secret_prefix  = coalesce(var.secret_prefix, "${var.project}/${var.env}")
-  log_group_name = coalesce(var.log_group_name, "/${var.project}/${var.env}/containers")
-  ssm_prefix     = coalesce(var.ssm_prefix, "/${var.project}/${var.env}")
-  account        = data.aws_caller_identity.this.account_id
+  secret_prefix = coalesce(var.secret_prefix, "${var.project}/${var.env}")
+  ssm_prefix    = coalesce(var.ssm_prefix, "/${var.project}/${var.env}")
+  account       = data.aws_caller_identity.this.account_id
 }
 
 # ---------- ECR <project>-<env>/<서비스> · 최신 7개만 보관 (롤백용 이전 버전 포함) ----------
@@ -170,10 +169,43 @@ resource "aws_secretsmanager_secret_version" "grafana" {
   secret_string = jsonencode({ "admin-user" = "admin", "admin-password" = random_password.grafana.result })
 }
 
-# ---------- CloudWatch Logs (Fluent Bit 목적지, 14일) ----------
-resource "aws_cloudwatch_log_group" "containers" {
-  name              = local.log_group_name
-  retention_in_days = 14
+# ---------- Loki 저장소 (앱 로그, Fluent Bit → Loki → S3) — 클러스터를 매일 지워도 로그는 남음 ----------
+resource "aws_s3_bucket" "loki" {
+  bucket        = "${local.name}-loki-${local.account}"
+  force_destroy = true # 로그 객체가 있어도 persistent 정리 시 함께 삭제
+}
+
+resource "aws_s3_bucket_public_access_block" "loki" {
+  bucket                  = aws_s3_bucket.loki.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "loki" {
+  bucket = aws_s3_bucket.loki.id
+  rule {
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+  }
+}
+
+# 보관은 Loki compactor 가 14일(336h)로 지움 — 클러스터가 꺼져 compactor 가 못 돈 날 대비 하루 여유
+resource "aws_s3_bucket_lifecycle_configuration" "loki" {
+  bucket = aws_s3_bucket.loki.id
+  rule {
+    id     = "expire-15d"
+    status = "Enabled"
+    filter {}
+    expiration { days = 15 }
+  }
+}
+
+# addons.sh 가 읽음 (Loki 차트 bucketNames)
+resource "aws_ssm_parameter" "loki_bucket" {
+  name  = "${local.ssm_prefix}/loki_bucket"
+  type  = "String"
+  value = aws_s3_bucket.loki.bucket
 }
 
 # ---------- RDS 파라미터 그룹 (KST · 슬로우 쿼리 1초 · pg_stat_statements) ----------
@@ -236,8 +268,8 @@ output "db_parameter_group" {
   value = aws_db_parameter_group.pg16.name
 }
 
-output "log_group_name" {
-  value = aws_cloudwatch_log_group.containers.name
+output "loki_bucket_arn" {
+  value = aws_s3_bucket.loki.arn
 }
 
 # ---------- ephemeral 이 쓰는 값 (dns · frontend · audit · ops) ----------

@@ -42,8 +42,8 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
 | `helm/values/aws.yaml` | 비워 두고 `deploy.sh` 가 `--set` |
 
 이름 규칙 (Terraform·스크립트·워크플로 공통): 리소스 `<PROJECT>-<ENV_NAME>` · Secrets Manager `<PROJECT>/<ENV_NAME>/*` ·
-SSM `/<PROJECT>/<ENV_NAME>/*` · 로그 그룹 `/<PROJECT>/<ENV_NAME>/containers` · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
-`CLUSTER_NAME`·`SECRET_PREFIX`·`SSM_PREFIX`·`LOG_GROUP` 을 넣으면 그 값이 규칙보다 우선합니다 (로컬·GitHub 에 같은 값을 넣을 것).
+SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
+`CLUSTER_NAME`·`SECRET_PREFIX`·`SSM_PREFIX` 를 넣으면 그 값이 규칙보다 우선합니다 (로컬·GitHub 에 같은 값을 넣을 것).
 
 ## 1. 처음 한 번 — bootstrap (WSL2, 로컬)
 
@@ -105,7 +105,7 @@ terraform -chdir=terraform/persistent plan
 | `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 5) — 넘으면 메일만 |
 | `COST_REPORT_SENDER` | 선택 | 일일 비용 메일 발신 주소 (기본 `cost-report@<DOMAIN_NAME>`) |
 | `COST_TAG_KEY` | 선택 | 일일 비용 메일 ② 표 태그 키 (기본 `Stack`) |
-| `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` · `LOG_GROUP` | 선택 | 비우면 이름 규칙 |
+| `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` | 선택 | 비우면 이름 규칙 |
 
 **Secrets** (선택): `ALERT_EMAILS` — 알림 메일 JSON 배열 `["<메일>@example.com"]` (알람·켜기/끄기 결과·예산). 공개 레포라 Variables 가 아닌 Secret (로그에 `***`). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 / `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
 
@@ -253,7 +253,10 @@ kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80               
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090   # http://localhost:9090/targets
 ```
 
-- 앱 로그: Grafana → Explore → 데이터소스 **CloudWatch** → Logs Insights → 로그 그룹 `/baedalsak/prod/containers` (권한: Pod Identity `<NAME>-grafana`, CloudWatchReadOnlyAccess). 클러스터가 꺼진 시간에는 CloudWatch 콘솔에서 같은 쿼리로 조회
+- 앱 로그: Grafana → Explore → 데이터소스 **Loki** → 예 `{namespace="prod", service="payment", level="ERROR"}`, traceId 는 `|= "<traceId>"` 로 본문 검색
+  - 경로: 파드 stdout → Fluent Bit(kube-system) → Loki(monitoring, 파드 1개) → S3 `<NAME>-loki-<계정>` 14일. 클러스터가 꺼진 시간(평일 19:00~09:30·주말)엔 조회 불가, 다음 켜기 때 지난 로그 그대로 조회
+  - 라벨은 `namespace`·`service`·`level` 만 (늘리면 Loki 인덱스가 커짐)
+- AWS 서비스 로그·지표: 데이터소스 **CloudWatch** (Lambda·Step Functions 로그, RDS·MQ 지표 — 권한 Pod Identity `<NAME>-grafana`, CloudWatchReadOnlyAccess)
 
 ### Cognito 인증 (2026-10-27 적용, 이슈 #13 · server #82)
 

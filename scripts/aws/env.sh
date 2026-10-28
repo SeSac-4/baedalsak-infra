@@ -13,10 +13,9 @@ NAME="${PROJECT}-${ENV_NAME}"
 CLUSTER_NAME="${CLUSTER_NAME:-$NAME}"
 SECRET_PREFIX="${SECRET_PREFIX:-${PROJECT}/${ENV_NAME}}"
 SSM_PREFIX="${SSM_PREFIX:-/${PROJECT}/${ENV_NAME}}"
-LOG_GROUP="${LOG_GROUP:-/${PROJECT}/${ENV_NAME}/containers}"
 NS="$ENV_NAME" # 앱 namespace = 환경 이름 (Terraform local.namespace)
 
-export AWS_REGION PROJECT ENV_NAME NAME CLUSTER_NAME SECRET_PREFIX SSM_PREFIX LOG_GROUP NS
+export AWS_REGION PROJECT ENV_NAME NAME CLUSTER_NAME SECRET_PREFIX SSM_PREFIX NS
 
 # Terraform ephemeral 이 SSM_PREFIX 아래에 쓴 값 읽기
 ssm() { aws ssm get-parameter --region "$AWS_REGION" --name "${SSM_PREFIX}/$1" --query Parameter.Value --output text; }

@@ -173,7 +173,7 @@ curl -i http://localhost:18080/api/v1/stores
 | EKS(=minikube) 쿠버네티스 버전 | Terraform 결정 후 `K8S_VERSION` 고정 |
 | 운영 값 | RDS·MQ·ElastiCache 주소, Amazon MQ TLS(5671), ElastiCache TLS, 운영 프로필, Secrets Manager 키 규칙, IRSA 역할 |
 | gateway 의 RabbitMQ 사용 여부 | 쓰지 않으면 `services/gateway.yaml` 에 `rabbitmq.enabled: false` |
-| 모니터링 (후순위) | Prometheus · Grafana · Fluent Bit · Zipkin — 앱 설정은 주석 처리 (`baedalsak-server/docs/backend-infra-rules.md` 9번). 수집 주소 예정 `<파드IP>:8081/actuator/prometheus` |
+| 모니터링 | AWS: Prometheus · Grafana · Loki(Fluent Bit → S3 14일) — `docs/aws-runbook.md`. 추적(Tempo)은 예정. 앱 설정은 주석 처리 (`baedalsak-server/docs/backend-infra-rules.md` 9번). 수집 주소 예정 `<파드IP>:8081/actuator/prometheus` |
 
 ## Claude Code 로 작업할 때
 

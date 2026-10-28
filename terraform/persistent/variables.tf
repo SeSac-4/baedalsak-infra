@@ -20,12 +20,6 @@ variable "secret_prefix" {
   default     = ""
 }
 
-variable "log_group_name" {
-  description = "컨테이너 로그 그룹 (LOG_GROUP). 비우면 /<project>/<env>/containers"
-  type        = string
-  default     = ""
-}
-
 variable "ssm_prefix" {
   description = "SSM 파라미터 경로 (SSM_PREFIX). 비우면 /<project>/<env>"
   type        = string

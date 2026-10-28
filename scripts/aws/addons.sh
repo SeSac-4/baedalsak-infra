@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # EKS 애드온 설치 (helm) — terraform ephemeral apply 직후, 앱 배포 전에 실행
-#   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Fluent Bit · Prometheus·Grafana(monitoring)
+#   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Loki · Fluent Bit(→ Loki) · Prometheus·Grafana(monitoring)
 #   권한은 Terraform 이 만든 Pod Identity 연결을 그대로 사용 (SA 이름이 같아야 함)
 # 필요: aws cli, kubectl(kubeconfig 설정 완료), helm
 # =============================================================================
@@ -18,6 +18,7 @@ helm repo add autoscaler https://kubernetes.github.io/autoscaler >/dev/null
 helm repo add external-secrets https://charts.external-secrets.io >/dev/null
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
+helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
 helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
@@ -83,23 +84,28 @@ echo "== metrics-server"
 helm upgrade --install metrics-server metrics-server/metrics-server \
   -n kube-system --wait --timeout 10m
 
-echo "== Fluent Bit → CloudWatch Logs ${LOG_GROUP}"
+# Fluent Bit 보다 먼저 — 수집기가 뜨자마자 보낼 곳이 있게
+echo "== Loki (monitoring) — 앱 로그 저장소, S3 14일"
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+LOKI_BUCKET="$(ssm loki_bucket)"
+helm upgrade --install loki grafana/loki \
+  -n monitoring --version 7.3.0 \
+  -f "$(dirname "$0")/../../helm/addons/loki.yaml" \
+  --set-string loki.storage.bucketNames.chunks="$LOKI_BUCKET" \
+  --set-string loki.storage.bucketNames.ruler="$LOKI_BUCKET" \
+  --set-string loki.storage.bucketNames.admin="$LOKI_BUCKET" \
+  --set-string loki.storage.s3.region="$REGION" \
+  --wait --timeout 10m
+
+echo "== Fluent Bit → Loki"
 helm upgrade --install aws-for-fluent-bit eks/aws-for-fluent-bit \
   -n kube-system \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-for-fluent-bit \
-  --set cloudWatch.enabled=false \
-  --set firehose.enabled=false \
-  --set kinesis.enabled=false \
-  --set elasticsearch.enabled=false \
-  --set cloudWatchLogs.enabled=true \
-  --set cloudWatchLogs.region="$REGION" \
-  --set cloudWatchLogs.logGroupName="$LOG_GROUP" \
-  --set cloudWatchLogs.autoCreateGroup=false \
+  -f "$(dirname "$0")/../../helm/addons/aws-for-fluent-bit.yaml" \
   --wait --timeout 10m
 
 echo "== Prometheus·Grafana (monitoring) — 디스크 없음, 외부 노출 없음"
-kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 # Grafana admin: Secrets Manager <SECRET_PREFIX>/grafana → Secret grafana-admin (values 에 비밀번호 없음)
 kubectl apply -f - <<EOF
 apiVersion: external-secrets.io/v1

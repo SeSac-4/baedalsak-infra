@@ -1,0 +1,25 @@
+# =============================================================================
+# Fluent Bit (kube-system) — 파드 stdout 로그 → Loki (monitoring/loki:3100)
+#   CloudWatch 출력은 끔: 앱 로그는 Loki 에서, AWS 서비스 로그(Lambda·RDS 등)는 CloudWatch 에서 봄
+#   앱 JSON 로그(logstash 형식)는 kubernetes 필터가 data 아래로 풀어 level 을 라벨로 씀
+# =============================================================================
+cloudWatchLogs: { enabled: false }
+cloudWatch: { enabled: false }
+firehose: { enabled: false }
+kinesis: { enabled: false }
+elasticsearch: { enabled: false }
+
+filter:
+  keepLog: "Off"                 # JSON 으로 풀린 로그는 원문(log) 중복 저장 안 함 — 못 푼 로그는 원문 유지
+
+# 라벨은 namespace · service(앱 차트 라벨) · level 만 — traceId 등은 본문 검색
+additionalOutputs: |
+  [OUTPUT]
+      Name                   loki
+      Match                  kube.*
+      Host                   loki.monitoring.svc.cluster.local
+      Port                   3100
+      Labels                 job=fluent-bit, namespace=$kubernetes['namespace_name'], service=$kubernetes['labels']['service'], level=$data['level']
+      Line_Format            json
+      Auto_Kubernetes_Labels Off
+      Retry_Limit            False
