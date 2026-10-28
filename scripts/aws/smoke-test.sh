@@ -16,6 +16,7 @@ set -uo pipefail
 source "$(dirname "$0")/env.sh"
 REGION="$AWS_REGION"
 SVCS="gateway member store order payment delivery"
+API="/api/v1" # 점검할 API 버전 경로 — 버전을 올리면 여기만
 fail=0
 
 echo "== 1) 파드 Ready"
@@ -49,7 +50,7 @@ done
 kubectl -n "$NS" delete pod smoke-test --ignore-not-found >/dev/null
 # shellcheck disable=SC2016 # 작은따옴표 안의 변수는 curl 파드 안에서 펼침
 kubectl -n "$NS" run smoke-test --image=curlimages/curl:8.11.1 --restart=Never --rm -i \
-  --env="POD_IPS=$POD_IPS" --env="ALB=$ALB" --command -- sh -c '
+  --env="POD_IPS=$POD_IPS" --env="ALB=$ALB" --env="API=$API" --command -- sh -c '
 f=0
 echo "-- 3) readiness (pod:8081)"
 for kv in $POD_IPS; do
@@ -58,8 +59,8 @@ for kv in $POD_IPS; do
   case "$body" in *"\"UP\""*) echo "PASS $s $body";; *) echo "FAIL $s $body"; f=1;; esac
 done
 echo "-- 4) ALB → gateway → 서비스 라우팅"
-for p in /api/v1/stores /api/v1/categories /api/v1/orders /api/v1/cart /api/v1/payments /api/v1/deliveries/waiting /api/v1/members/me; do
-  code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" "http://$ALB$p")
+for p in /stores /categories /orders /cart /payments /deliveries/waiting /members/me; do
+  code=$(curl -s -o /dev/null -m 10 -w "%{http_code}" "http://$ALB$API$p")
   case "$code" in 502|503|504|000) echo "FAIL $p -> $code"; f=1;; *) echo "PASS $p -> $code";; esac
 done
 echo "-- 5) (참고) /actuator/health 전체"
@@ -72,7 +73,7 @@ exit $f
 
 if [ -n "${DOMAIN_NAME:-}" ]; then
   echo "== 6) 공개 경로 https://$DOMAIN_NAME"
-  for p in /api/v1/stores /api/v1/categories; do
+  for p in "$API/stores" "$API/categories"; do
     code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "https://$DOMAIN_NAME$p")
     case "$code" in 502|503|504|000) echo "FAIL $p -> $code"; fail=1;; *) echo "PASS $p -> $code";; esac
   done

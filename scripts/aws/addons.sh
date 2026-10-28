@@ -130,6 +130,7 @@ kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --version 92.14.0 \
   -f "$(dirname "$0")/../../helm/addons/kube-prometheus-stack.yaml" \
+  --set-string grafana.env.AWS_REGION="$REGION" \
   --wait --timeout 10m
 
 kubectl get pods -n kube-system

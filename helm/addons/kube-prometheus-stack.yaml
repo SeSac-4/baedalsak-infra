@@ -74,4 +74,4 @@ grafana:
       type: cloudwatch
       jsonData:
         authType: default              # SDK 기본 자격 증명 = Pod Identity
-        defaultRegion: ap-northeast-2
+        defaultRegion: $AWS_REGION     # Grafana 가 프로비저닝 때 환경 변수로 치환 (addons.sh grafana.env.AWS_REGION)

@@ -19,6 +19,7 @@ KST = timezone(timedelta(hours=9))
 LOG_LINES = 40     # job 로그 마지막 줄 수
 ERROR_LINES = 20   # ##[error] 줄 최대 수
 MAX_MESSAGE = 60000
+API = "/api/v1"      # 사이트 점검 API 버전 경로 — 버전을 올리면 여기만 (scripts/aws/smoke-test.sh 의 API 와 같게)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -107,7 +108,7 @@ def check_up():
             out.append((n["status"] == "ACTIVE", f"노드그룹 {ng} {n['status']} (노드 {n['scalingConfig']['desiredSize']}대)"))
     dbs = [d for d in rds.describe_db_instances()["DBInstances"] if d["DBInstanceIdentifier"].startswith(NAME)]
     out += [(d["DBInstanceStatus"] == "available", f"RDS {d['DBInstanceIdentifier']} {d['DBInstanceStatus']}") for d in dbs] or [(False, "RDS 없음")]
-    url = f"https://{os.environ['DOMAIN_NAME']}/api/v1/stores"
+    url = f"https://{os.environ['DOMAIN_NAME']}{API}/stores"
     try:
         with urllib.request.urlopen(url, timeout=15) as res:
             code = res.status
