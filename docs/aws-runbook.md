@@ -253,6 +253,8 @@ kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80               
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090   # http://localhost:9090/targets
 ```
 
+- 앱 로그: Grafana → Explore → 데이터소스 **CloudWatch** → Logs Insights → 로그 그룹 `/baedalsak/prod/containers` (권한: Pod Identity `<NAME>-grafana`, CloudWatchReadOnlyAccess). 클러스터가 꺼진 시간에는 CloudWatch 콘솔에서 같은 쿼리로 조회
+
 ### Cognito 인증 (2026-10-27 적용, 이슈 #13 · server #82)
 
 ```

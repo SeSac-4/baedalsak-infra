@@ -63,3 +63,12 @@ grafana:
   resources:
     requests: { cpu: 50m, memory: 192Mi }
     limits: { memory: 384Mi }
+  # 권한은 Pod Identity <NAME>-grafana (CloudWatchReadOnlyAccess) — terraform/ephemeral/iam.tf
+  serviceAccount: { name: grafana }
+  # 앱 로그(Fluent Bit → CloudWatch Logs) 를 Logs Insights 로, RDS·MQ 등 AWS 지표도 같이 조회
+  additionalDataSources:
+    - name: CloudWatch
+      type: cloudwatch
+      jsonData:
+        authType: default              # SDK 기본 자격 증명 = Pod Identity
+        defaultRegion: ap-northeast-2
