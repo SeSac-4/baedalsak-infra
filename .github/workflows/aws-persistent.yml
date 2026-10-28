@@ -1,4 +1,4 @@
-# AWS 상시 리소스 적용 — persistent 스택만 apply (ECR·Secrets Manager·로그 그룹·RDS 파라미터 그룹)
+# AWS 상시 리소스 적용 — persistent 스택만 apply (ECR·Secrets Manager·Loki 버킷·RDS 파라미터 그룹 등)
 #   처음 한 번(앱 이미지 빌드 전에) + persistent 코드를 바꿨을 때. 켜기(up)도 매번 이 단계를 포함
 name: AWS 상시 리소스 적용 (ECR·Secrets)
 
