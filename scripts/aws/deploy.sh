@@ -21,6 +21,8 @@ RDS_HOST="$(ssm rds_host)"
 MQ_HOST="$(ssm mq_host)"
 REDIS_HOST="$(ssm redis_host)"
 TG_ARN="$(ssm target_group_arn)"
+IMAGE_BUCKET="$(ssm image_bucket)"
+IMAGE_BASE_URL="$(ssm image_base_url)"
 # 추적 전송 주소 (helm/addons/tempo.yaml) — 앱이 OTel 로 바뀌기 전에는 쓰이지 않음
 OTLP_TRACES="http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
@@ -50,6 +52,8 @@ for svc in member store order payment delivery gateway; do
       extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1
               --set-string extraEnv.SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=5) ;;
   esac
+  # store: 가게·메뉴 이미지 presigned 업로드 (버킷 · 조회 주소는 persistent/images.tf)
+  [ "$svc" = store ] && extra+=(--set-string extraEnv.IMAGE_BUCKET="$IMAGE_BUCKET" --set-string extraEnv.IMAGE_BASE_URL="$IMAGE_BASE_URL")
 
   echo "== $svc"
   helm upgrade --install "$svc" "$CHART" -n "$NS" \

@@ -3,7 +3,8 @@
 #   VPC origin 은 ALB ARN 에 묶이고, 배포가 VPC origin 을 쓰는 동안 둘 다 지울 수 없어서 배포까지 ephemeral 에 둠
 #   (S3 프론트 · OAC · CF Function · 인증서는 persistent)
 #   behavior ① /api/*  → VPC origin(internal ALB 443) · CachingDisabled · AllViewer
-#   behavior ② 기본 *  → S3(OAC) · CachingOptimized · CF Function(SPA 경로) · SecurityHeadersPolicy
+#   behavior ② /images/* → S3 이미지(OAC) · CachingOptimized · CF Function(/images 떼기) — persistent/images.tf
+#   behavior ③ 기본 *  → S3(OAC) · CachingOptimized · CF Function(SPA 경로) · SecurityHeadersPolicy
 # =============================================================================
 
 resource "aws_cloudfront_vpc_origin" "alb" {
@@ -67,6 +68,12 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   origin {
+    origin_id                = "s3-images"
+    domain_name              = local.p.image_bucket_domain
+    origin_access_control_id = local.p.front_oac_id # OAC 는 버킷에 묶이지 않아 프론트와 같이 씀
+  }
+
+  origin {
     origin_id   = "alb"
     domain_name = aws_lb.internal.dns_name
     vpc_origin_config {
@@ -84,6 +91,23 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
     compress                 = true
+  }
+
+  # 키가 uuid 라 같은 주소의 내용이 바뀌지 않음 → 캐시 길게 (CachingOptimized 기본 1일 · 최대 1년)
+  ordered_cache_behavior {
+    path_pattern               = "/images/*"
+    target_origin_id           = "s3-images"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+    compress                   = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = local.p.images_function_arn
+    }
   }
 
   default_cache_behavior {
@@ -134,6 +158,28 @@ data "aws_iam_policy_document" "front" {
 resource "aws_s3_bucket_policy" "front" {
   bucket = local.p.front_bucket
   policy = data.aws_iam_policy_document.front.json
+}
+
+# S3 이미지도 이 배포만 읽을 수 있음 (OAC) — 업로드는 store 의 presigned URL 로만
+data "aws_iam_policy_document" "images" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["${local.p.image_bucket_arn}/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.main.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "images" {
+  bucket = local.p.image_bucket
+  policy = data.aws_iam_policy_document.images.json
 }
 
 resource "aws_route53_record" "main" {

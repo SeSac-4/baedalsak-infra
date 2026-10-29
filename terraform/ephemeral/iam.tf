@@ -131,6 +131,29 @@ resource "aws_eks_pod_identity_association" "grafana" {
   role_arn        = aws_iam_role.grafana.arn
 }
 
+# ---------- store → S3 이미지 (presigned PUT URL 서명 · 업로드 확인 HeadObject) — 버킷은 persistent/images.tf ----------
+#   presigned URL 은 서명한 주체(store 역할)의 권한으로 실행됨 → stores/* 에만 PutObject
+resource "aws_iam_role" "store_images" {
+  name               = "${local.name}-store-images"
+  assume_role_policy = data.aws_iam_policy_document.pod_trust.json
+}
+
+resource "aws_iam_role_policy" "store_images" {
+  name = "s3-images"
+  role = aws_iam_role.store_images.id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = "${local.p.image_bucket_arn}/stores/*" }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "store_images" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = local.namespace
+  service_account = "store"
+  role_arn        = aws_iam_role.store_images.arn
+}
+
 # ---------- 메일 발송 서비스 → SES (payment · order · delivery) ----------
 resource "aws_iam_role" "ses" {
   name               = "${local.name}-ses-sender"

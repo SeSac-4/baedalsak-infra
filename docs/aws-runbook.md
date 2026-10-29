@@ -42,7 +42,7 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
 | `helm/values/aws.yaml` | 비워 두고 `deploy.sh` 가 `--set` |
 
 이름 규칙 (Terraform·스크립트·워크플로 공통): 리소스 `<PROJECT>-<ENV_NAME>` · Secrets Manager `<PROJECT>/<ENV_NAME>/*` ·
-SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · Tempo 버킷 `<PROJECT>-<ENV_NAME>-tempo-<계정>` · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
+SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · Tempo 버킷 `<PROJECT>-<ENV_NAME>-tempo-<계정>` · 이미지 버킷 `<PROJECT>-<ENV_NAME>-images-<계정>`(store presigned 업로드, 조회 `https://<DOMAIN_NAME>/images/<키>`) · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
 `CLUSTER_NAME`·`SECRET_PREFIX`·`SSM_PREFIX` 를 넣으면 그 값이 규칙보다 우선합니다 (로컬·GitHub 에 같은 값을 넣을 것).
 
 ## 1. 처음 한 번 — bootstrap (WSL2, 로컬)
