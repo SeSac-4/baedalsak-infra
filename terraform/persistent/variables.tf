@@ -83,8 +83,3 @@ variable "cost_report_sender" {
   default     = ""
 }
 
-variable "cost_tag_key" {
-  description = "일일 비용 메일 ② 표의 태그 키 (COST_TAG_KEY) — provider default_tags 의 Stack(persistent / ephemeral)"
-  type        = string
-  default     = "Stack"
-}

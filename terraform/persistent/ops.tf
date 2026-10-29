@@ -5,7 +5,7 @@
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
 #   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
-#   비용 메일 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(전날, 크레딧·환불 제외) → SES 메일(서비스별·스택 태그별)
+#   비용 메일 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(이틀 전·전날, 크레딧·환불 제외) → SES 메일(서비스별)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
 #     <SECRET_PREFIX>/seed             {"SEED_PASSWORD": "..."} prod 풀 seed 사용자 비밀번호
@@ -93,7 +93,7 @@ locals {
       statements = [{ Effect = "Allow", Action = "states:StartExecution", Resource = local.state_machine_arn }]
     }
     cost_report = {
-      env     = { NAME = local.name, SENDER = local.cost_sender, RECIPIENTS = jsonencode(var.alert_emails), TAG_KEY = var.cost_tag_key }
+      env     = { NAME = local.name, SENDER = local.cost_sender, RECIPIENTS = jsonencode(var.alert_emails) }
       timeout = 60
       statements = [
         { Effect = "Allow", Action = "ce:GetCostAndUsage", Resource = "*" }, # Cost Explorer 는 리소스 단위 권한 없음
