@@ -97,7 +97,8 @@ locals {
       timeout = 60
       statements = [
         { Effect = "Allow", Action = "ce:GetCostAndUsage", Resource = "*" }, # Cost Explorer 는 리소스 단위 권한 없음
-        { Effect = "Allow", Action = "ses:SendEmail", Resource = aws_sesv2_email_identity.domain.arn },
+        # 샌드박스에서는 받는 주소 identity 에도 권한 필요 (없으면 AccessDenied — 10-28·29 미발송)
+        { Effect = "Allow", Action = "ses:SendEmail", Resource = concat([aws_sesv2_email_identity.domain.arn], [for r in aws_sesv2_email_identity.recipient : r.arn]) },
       ]
     }
   }

@@ -37,6 +37,5 @@ resource "aws_cloudwatch_metric_alarm" "this" {
   period              = 300
   evaluation_periods  = 1
   treat_missing_data  = "notBreaching"
-  alarm_actions       = [local.p.alerts_topic_arn]
-  ok_actions          = [local.p.alerts_topic_arn]
+  alarm_actions       = [local.p.alerts_topic_arn] # OK 전환 메일은 안 보냄 — 매일 켤 때 INSUFFICIENT_DATA→OK 로 5통씩 옴
 }
