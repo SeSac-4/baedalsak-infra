@@ -4,7 +4,7 @@
 #              워크플로가 작업 토큰으로 결과 보고 → Lambda ② 가 결과 확인 → SNS alerts → 메일
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
-#   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 + SNS budget → Lambda ③ → Step Functions(action=down)
+#   예산      : Budgets(일일) $5 넘으면 메일(경고) · $10 넘으면 메일 (+ budget_auto_down=true 면 SNS budget → Lambda ③ → 끄기)
 #   비용 메일 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(이틀 전·전날, 크레딧·환불 제외) → SES 메일(서비스별)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
@@ -158,13 +158,16 @@ resource "aws_cloudwatch_log_group" "lambda" {
   retention_in_days = 14
 }
 
+# 예산 초과 자동 끄기 — 부하 테스트 기간이라 꺼 둠 (10-29). 다시 켜려면 budget_auto_down = true
 resource "aws_sns_topic_subscription" "budget_guard" {
+  count     = var.budget_auto_down ? 1 : 0
   topic_arn = aws_sns_topic.budget.arn
   protocol  = "lambda"
   endpoint  = aws_lambda_function.this["budget_guard"].arn
 }
 
 resource "aws_lambda_permission" "budget_guard" {
+  count         = var.budget_auto_down ? 1 : 0
   statement_id  = "sns-budget"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.this["budget_guard"].function_name
@@ -309,7 +312,7 @@ resource "aws_budgets_budget" "daily" {
     }
   }
 
-  # 넘으면 끄기
+  # 넘으면 메일 (+ budget_auto_down 이면 끄기)
   notification {
     comparison_operator        = "GREATER_THAN"
     threshold                  = 100

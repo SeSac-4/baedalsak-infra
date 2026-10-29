@@ -54,9 +54,15 @@ variable "schedule_down" {
 }
 
 variable "budget_daily_usd" {
-  description = "일일 예산 USD (BUDGET_DAILY_USD). 실제 비용이 넘으면 끄기 실행"
+  description = "일일 예산 USD (BUDGET_DAILY_USD). 넘으면 메일 (budget_auto_down 이면 끄기도)"
   type        = number
   default     = 10
+}
+
+variable "budget_auto_down" {
+  description = "일일 예산을 넘으면 AWS 자동 끄기 (Lambda ③). 부하 테스트 기간이라 기본 끔"
+  type        = bool
+  default     = false
 }
 
 variable "budget_warn_usd" {

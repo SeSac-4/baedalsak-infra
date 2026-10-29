@@ -21,7 +21,7 @@ terraform/
 scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
 .github/workflows/
 ├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:30 + 수동)
-├── aws-down.yml        AWS 끄기 (Scheduler 평일 18:00 · 예산 초과 + 수동)
+├── aws-down.yml        AWS 끄기 (Scheduler 평일 18:00 · 수동. 예산 초과 자동 끄기는 꺼 둠)
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
@@ -100,7 +100,7 @@ terraform -chdir=terraform/persistent plan
 | `TEAM_MEMBER_ARNS` | 선택 **Secret** | 개발팀 `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) — EKS 전체 조회 + `prod`·`monitoring` 수정. 인프라 관리자는 terraform `infra_admin_users`(기본 `sesac-d5`, ClusterAdmin) |
 | `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
-| `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 끄기 |
+| `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 메일 (자동 끄기는 terraform `budget_auto_down`, 기본 false) |
 | `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 5) — 넘으면 메일만 |
 | `COST_REPORT_SENDER` | 선택 | 일일 비용 메일 발신 주소 (기본 `cost-report@<DOMAIN_NAME>`) |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` | 선택 | 비우면 이름 규칙 |
