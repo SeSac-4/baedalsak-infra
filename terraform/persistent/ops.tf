@@ -1,6 +1,6 @@
 # =============================================================================
 # 운영 자동화 (그림 v6 B안)
-#   켜기·끄기 : EventBridge Scheduler(평일 09:30·19:00 KST) → Step Functions → Lambda ① → GitHub Actions
+#   켜기·끄기 : EventBridge Scheduler(평일 09:30·18:00 KST) → Step Functions → Lambda ① → GitHub Actions
 #              워크플로가 작업 토큰으로 결과 보고 → Lambda ② 가 결과 확인 → SNS alerts → 메일
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
@@ -251,7 +251,7 @@ resource "aws_sfn_state_machine" "power" {
   })
 }
 
-# ---------- EventBridge Scheduler (평일 09:30 켜기 · 19:00 끄기, 공휴일은 막지 않음) ----------
+# ---------- EventBridge Scheduler (평일 09:30 켜기 · 18:00 끄기, 공휴일은 막지 않음) ----------
 data "aws_iam_policy_document" "scheduler_trust" {
   statement {
     actions = ["sts:AssumeRole"]

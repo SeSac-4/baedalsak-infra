@@ -50,7 +50,7 @@ variable "schedule_up" {
 variable "schedule_down" {
   description = "끄기 시각 (EventBridge Scheduler cron, Asia/Seoul)"
   type        = string
-  default     = "cron(0 19 ? * MON-FRI *)"
+  default     = "cron(0 18 ? * MON-FRI *)"
 }
 
 variable "budget_daily_usd" {

@@ -20,14 +20,14 @@
 
 ## AWS (EKS) — Terraform + GitHub Actions
 
-AWS 개발 환경은 **평일 09:30 KST 에 켜지고 19:00 KST 에 꺼집니다** (EventBridge Scheduler → Step Functions → Lambda → GitHub Actions, Asia/Seoul).
+AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다** (EventBridge Scheduler → Step Functions → Lambda → GitHub Actions, Asia/Seoul).
 켜기·끄기 결과는 **실패했을 때만** 메일로 옵니다. 매일 09:00 에 전날 서비스별 비용 메일이 옵니다.
 구성·처음 설정·실행 순서는 [`docs/aws-runbook.md`](docs/aws-runbook.md), 환경 변수 목록은 [`.env.example`](.env.example).
 
 | Actions 워크플로 | 실행 | 하는 일 |
 |---|---|---|
 | AWS 켜기 (평일 09:30) | 예약 · 수동 | 상시 리소스 apply → VPC·EKS·RDS(빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test |
-| AWS 끄기 (평일 19:00) | 예약 · 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
+| AWS 끄기 (평일 18:00) | 예약 · 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
 | 앱 이미지 빌드 (서버 → ECR) | 서버 develop 머지 시 자동 · 수동 | baedalsak-server 6개 이미지 빌드 → ECR → 켜져 있으면 앱 배포 |
 | 프론트 배포 (클라이언트 → S3) | 클라이언트 develop push 시 자동 · 수동 | `npm run build`(토스 클라이언트 키는 Parameter Store) → S3 → CloudFront 무효화 |
 | AWS 상시 리소스 적용 | 수동 | persistent 스택 apply (ECR · Secrets Manager · Parameter Store · Cognito · SES · S3 · 운영 자동화) |
