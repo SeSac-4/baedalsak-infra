@@ -124,6 +124,16 @@ resource "aws_iam_role_policy_attachment" "grafana" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
 }
 
+# 비용 추정 알림 → SNS 알림 주제 (helm/addons/kube-prometheus-stack.yaml grafana.alerting)
+resource "aws_iam_role_policy" "grafana_sns" {
+  name = "sns-alerts"
+  role = aws_iam_role.grafana.id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Action = "sns:Publish", Resource = local.p.alerts_topic_arn }]
+  })
+}
+
 resource "aws_eks_pod_identity_association" "grafana" {
   cluster_name    = module.eks.cluster_name
   namespace       = "monitoring"

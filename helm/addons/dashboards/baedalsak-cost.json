@@ -1,0 +1,595 @@
+{
+ "uid": "baedalsak-cost",
+ "title": "배달싹 비용 (추정)",
+ "tags": [
+  "baedalsak",
+  "cost"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-12h",
+  "to": "now"
+ },
+ "refresh": "1m",
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "지금 시간당 (추정)",
+   "description": "고정 단가 합 + t3.large × 노드 수. 평소 2노드 ≈ $0.76",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 0,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(0.5515 + 0.104 * count(kube_node_info))",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       },
+       {
+        "color": "red",
+        "value": 1.5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "오늘 누적 (켜진 뒤부터)",
+   "description": "Prometheus 는 켤 때 새로 시작 → 오늘 켜진 시각부터의 합",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 6,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "오늘 예상 (18:00 까지 지금 속도)",
+   "description": "누적 + 지금 시간당 × 18:00 까지 남은 시간. $10 · $20 넘으면 메일",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 12,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 10
+       },
+       {
+        "color": "red",
+        "value": 20
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "노드 수",
+   "description": "Cluster Autoscaler 2~4대 — 늘면 대당 시간당 +$0.104",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 18,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(kube_node_info)",
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "decimals": 2,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 5,
+   "type": "bargauge",
+   "title": "항목별 시간당 (추정)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 11,
+    "w": 12,
+    "x": 0,
+    "y": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sort_desc(label_replace(vector(0.197), \"item\", \"Amazon MQ\", \"\", \"\") or label_replace(vector(0.1), \"item\", \"EKS 컨트롤 플레인\", \"\", \"\") or label_replace(vector(0.104), \"item\", \"NAT · 디스크 (EC2 기타)\", \"\", \"\") or label_replace(vector(0.048), \"item\", \"CloudWatch\", \"\", \"\") or label_replace(vector(0.028), \"item\", \"RDS\", \"\", \"\") or label_replace(vector(0.024), \"item\", \"ALB\", \"\", \"\") or label_replace(vector(0.018), \"item\", \"ElastiCache\", \"\", \"\") or label_replace(vector(0.013), \"item\", \"Secrets Manager\", \"\", \"\") or label_replace(vector(0.01), \"item\", \"공인 IPv4\", \"\", \"\") or label_replace(vector(0.0065), \"item\", \"bastion\", \"\", \"\") or label_replace(vector(0.003), \"item\", \"S3 · ECR · CloudTrail · 기타\", \"\", \"\") or label_replace(0.104 * count(kube_node_info), \"item\", \"EC2 노드 (t3.large × 노드 수)\", \"\", \"\"))",
+     "instant": true,
+     "legendFormat": "{{item}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 3,
+     "min": 0
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "basic",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "showUnfilled": true
+   }
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "시간당 비용 추이",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 11,
+    "w": 12,
+    "x": 12,
+    "y": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "(0.5515 + 0.104 * count(kube_node_info))",
+     "legendFormat": "시간당"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 2,
+     "min": 0
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "RDS CPU 크레딧 초과 (오늘)",
+   "description": "t4g 기준 성능 초과분. vCPU-분 크레딧 × $0.075/vCPU-시간",
+   "datasource": {
+    "type": "datasource",
+    "uid": "-- Mixed --"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 0,
+    "y": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "cloudwatch",
+      "uid": "cloudwatch"
+     },
+     "region": "default",
+     "queryMode": "Metrics",
+     "metricQueryType": 0,
+     "metricEditorMode": 0,
+     "id": "",
+     "expression": "",
+     "matchExact": false,
+     "period": "3600",
+     "hide": true,
+     "namespace": "AWS/RDS",
+     "metricName": "CPUSurplusCreditsCharged",
+     "statistic": "Sum",
+     "dimensions": {}
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$A * 0.00125"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 3
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ]
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "NAT 전송 (오늘)",
+   "description": "NAT 처리 GB × $0.059 (이미지 pull · 외부 API)",
+   "datasource": {
+    "type": "datasource",
+    "uid": "-- Mixed --"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 6,
+    "y": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "cloudwatch",
+      "uid": "cloudwatch"
+     },
+     "region": "default",
+     "queryMode": "Metrics",
+     "metricQueryType": 0,
+     "metricEditorMode": 0,
+     "id": "",
+     "expression": "",
+     "matchExact": false,
+     "period": "3600",
+     "hide": true,
+     "namespace": "AWS/NATGateway",
+     "metricName": "BytesOutToDestination",
+     "statistic": "Sum",
+     "dimensions": {}
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$A * 5.494803190231323e-11"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 3
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ]
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 9,
+   "type": "stat",
+   "title": "ALB LCU (오늘)",
+   "description": "시간당 평균 LCU × $0.008 (요청·연결 비례)",
+   "datasource": {
+    "type": "datasource",
+    "uid": "-- Mixed --"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 12,
+    "y": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "cloudwatch",
+      "uid": "cloudwatch"
+     },
+     "region": "default",
+     "queryMode": "Metrics",
+     "metricQueryType": 0,
+     "metricEditorMode": 0,
+     "id": "",
+     "expression": "",
+     "matchExact": false,
+     "period": "3600",
+     "hide": true,
+     "namespace": "AWS/ApplicationELB",
+     "metricName": "ConsumedLCUs",
+     "statistic": "Average",
+     "dimensions": {}
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$A * 0.008"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 3
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ]
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "SES 발송 (오늘)",
+   "description": "메일 1통 $0.0001",
+   "datasource": {
+    "type": "datasource",
+    "uid": "-- Mixed --"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 18,
+    "y": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "cloudwatch",
+      "uid": "cloudwatch"
+     },
+     "region": "default",
+     "queryMode": "Metrics",
+     "metricQueryType": 0,
+     "metricEditorMode": 0,
+     "id": "",
+     "expression": "",
+     "matchExact": false,
+     "period": "3600",
+     "hide": true,
+     "namespace": "AWS/SES",
+     "metricName": "Send",
+     "statistic": "Sum",
+     "dimensions": {}
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "__expr__",
+      "uid": "__expr__"
+     },
+     "type": "math",
+     "expression": "$A * 0.0001"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "currencyUSD",
+     "decimals": 3
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ]
+    },
+    "colorMode": "none",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 11,
+   "type": "text",
+   "title": "설명",
+   "gridPos": {
+    "h": 6,
+    "w": 24,
+    "x": 0,
+    "y": 21
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**추정치** — 실제 청구가 아니라 켜진 리소스 × 단가 (크레딧 차감 전, 10-27 실측 보정). 실제 금액은 매일 09:00 비용 메일 · Budgets 메일.\n\n- 위 4개 · 항목별 · 추이 = 고정 단가 + 노드 수 (Prometheus). 아래 4개 = 사용량 비례 추가분 (CloudWatch, 몇 분 늦음)\n- 알림: 오늘 예상 $10 · $20, 시간당 $1.5 초과 → SNS 알림 메일 (Grafana 알림, 5분마다 확인)\n- 단가는 `helm/addons/dashboards/baedalsak-cost.json` 생성 스크립트 기준 — 인스턴스 종류를 바꾸면 같이 수정"
+   }
+  }
+ ]
+}

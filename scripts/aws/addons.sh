@@ -136,11 +136,16 @@ spec:
         key: ${SECRET_PREFIX}/grafana
 EOF
 kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=3m
+# 비용 추정 대시보드 — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음 (단가는 json 안 PromQL 상수)
+kubectl -n monitoring create configmap dashboard-baedalsak-cost \
+  --from-file="$(dirname "$0")/../../helm/addons/dashboards/baedalsak-cost.json" --dry-run=client -o yaml \
+  | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
 # 메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm template 로 먼저 확인
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --version 92.14.0 \
   -f "$(dirname "$0")/../../helm/addons/kube-prometheus-stack.yaml" \
   --set-string grafana.env.AWS_REGION="$REGION" \
+  --set-string grafana.env.ALERTS_TOPIC_ARN="$(ssm alerts_topic_arn)" \
   --wait --timeout 10m
 
 kubectl get pods -n kube-system

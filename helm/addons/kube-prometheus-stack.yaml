@@ -97,6 +97,82 @@ grafana:
         revision: 2
         datasource: [{ name: DS_PROMETHEUS, value: Prometheus }, { name: DS_LOKI, value: Loki }]
       spring-boot-3x-statistics: { gnetId: 19004, revision: 1, datasource: Prometheus }
+  # 비용 추정 알림 (대시보드 helm/addons/dashboards/baedalsak-cost.json 과 같은 식) → SNS 알림 주제 → 메일
+  #   Budgets 메일(실제 청구, 몇 시간 늦음)보다 빠른 추정 알림. SNS 메일 제목은 ASCII 만 · 이 블록엔 $ 금지(provisioning 이 환경 변수로 치환)
+  alerting:
+    contactpoints.yaml:
+      apiVersion: 1
+      contactPoints:
+        - orgId: 1
+          name: sns-alerts
+          receivers:
+            - uid: sns-alerts
+              type: sns
+              settings:
+                topic_arn: "${ALERTS_TOPIC_ARN}"   # addons.sh grafana.env (SSM alerts_topic_arn) — Grafana 가 provisioning 때 치환
+                sigv4:
+                  region: "${AWS_REGION}"
+                subject: "[baedalsak-prod] cost estimate alert"
+    policies.yaml:
+      apiVersion: 1
+      policies:
+        - orgId: 1
+          receiver: sns-alerts
+          group_by: [alertname]
+          repeat_interval: 4h
+    rules.yaml:
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: cost
+          folder: 배달싹
+          interval: 5m
+          rules:
+            - uid: cost-forecast-10
+              title: 오늘 예상 비용 10달러 초과
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "오늘 18:00 까지 예상 비용이 10달러 를 넘음 (추정, Grafana 배달싹 비용 대시보드)" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: prometheus
+                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [10] } }] }
+            - uid: cost-forecast-20
+              title: 오늘 예상 비용 20달러 초과
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "오늘 18:00 까지 예상 비용이 20달러 를 넘음 (추정)" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: prometheus
+                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [20] } }] }
+            - uid: cost-hourly-1_5
+              title: 시간당 비용 1.5달러 초과
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "지금 시간당 비용이 1.5달러 를 넘음 — 노드 증설 · 부하 테스트 확인 (추정)" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: prometheus
+                  model: { refId: A, instant: true, expr: '(0.5515 + 0.104 * count(kube_node_info))' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [1.5] } }] }
   # 앱 로그는 Loki, 추적은 Tempo, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
     # 로그 ↔ 추적 연결: 로그 JSON 의 "traceId" → Tempo 추적 열기 / 추적의 span → 그 서비스 Loki 로그 ($$ = provisioning 변수 치환 막음)
@@ -122,6 +198,7 @@ grafana:
           spanStartTimeShift: "-5m"
           spanEndTimeShift: "5m"
     - name: CloudWatch
+      uid: cloudwatch
       type: cloudwatch
       jsonData:
         authType: default              # SDK 기본 자격 증명 = Pod Identity

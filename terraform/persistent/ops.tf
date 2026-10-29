@@ -27,6 +27,13 @@ resource "aws_sns_topic" "alerts" {
   name = "${local.name}-alerts"
 }
 
+# addons.sh 가 Grafana 에 넘김 (비용 추정 알림 → 이 주제 → 메일)
+resource "aws_ssm_parameter" "alerts_topic_arn" {
+  name  = "${local.ssm_prefix}/alerts_topic_arn"
+  type  = "String"
+  value = aws_sns_topic.alerts.arn
+}
+
 resource "aws_sns_topic_subscription" "alerts_email" {
   for_each  = toset(var.alert_emails)
   topic_arn = aws_sns_topic.alerts.arn
