@@ -97,8 +97,7 @@ terraform -chdir=terraform/persistent plan
 | `AWS_ROLE_ARN` | ✅ **Secret** | bootstrap output `github_actions_role_arn` (계정 번호 포함 → Secret) |
 | `SERVER_REPO` | ✅ (images) | `SeSac-4/baedalsak-server` |
 | `SERVER_REF` | ✅ (images) | `develop` — 실행 시 입력 `server_ref` 가 우선 |
-| `TEAM_MEMBER_ARNS` | 선택 **Secret** | `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) |
-| `TEAM_MEMBER_POLICY` | 선택 | `AmazonEKSAdminViewPolicy`(기본, 조회) / `AmazonEKSClusterAdminPolicy` |
+| `TEAM_MEMBER_ARNS` | 선택 **Secret** | 개발팀 `["arn:aws:iam::<계정>:user/<이름>"]` (없으면 `[]`) — EKS 전체 조회 + `prod`·`monitoring` 수정. 인프라 관리자는 terraform `infra_admin_users`(기본 `sesac-d5`, ClusterAdmin) |
 | `DOMAIN_NAME` | ✅ | `baedalsak.click` (Route 53 에서 구매) |
 | `CLIENT_REPO` / `CLIENT_REF` | ✅ (frontend) | `SeSac-4/baedalsak-client` / `develop` |
 | `BUDGET_DAILY_USD` | 선택 | 일일 예산 USD (기본 10) — 넘으면 끄기 |

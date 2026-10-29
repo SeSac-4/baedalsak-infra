@@ -58,16 +58,16 @@ variable "db_snapshot_identifier" {
   default = null
 }
 
-# EKS 팀원 접근 (IAM 사용자/역할 ARN). 권한 범위는 결정 전이라 기본은 조회 전용
+# EKS 개발팀 접근 (IAM 사용자 ARN) — 권한은 eks.tf access_entries
 variable "team_member_arns" {
-  description = "EKS 접근 팀원 ARN JSON 배열 (TEAM_MEMBER_ARNS)"
+  description = "EKS 접근 개발팀 ARN JSON 배열 (TEAM_MEMBER_ARNS Secret)"
   type        = list(string)
   default     = []
 }
 
-variable "team_member_policy" {
-  description = "TEAM_MEMBER_POLICY: AmazonEKSAdminViewPolicy(조회) / AmazonEKSClusterAdminPolicy(관리자)"
-  type        = string
-  default     = "AmazonEKSAdminViewPolicy"
+variable "infra_admin_users" {
+  description = "EKS 클러스터 관리자 IAM 사용자 이름 (인프라 담당) — 계정 번호는 실행 시 조회"
+  type        = list(string)
+  default     = ["sesac-d5"]
 }
 

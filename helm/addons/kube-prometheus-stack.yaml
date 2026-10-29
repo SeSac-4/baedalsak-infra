@@ -60,6 +60,9 @@ grafana:
     existingSecret: grafana-admin   # addons.sh 의 ExternalSecret (Secrets Manager <SECRET_PREFIX>/grafana)
     userKey: admin-user
     passwordKey: admin-password
+  # 로그인 없이 Editor(Explore 로 로그·추적 검색) — 외부 노출 없이 EKS 등록자만 port-forward 로 들어옴. 설정·데이터소스는 admin 로그인(인프라)
+  grafana.ini:
+    auth.anonymous: { enabled: true, org_role: Editor }
   resources:
     requests: { cpu: 50m, memory: 192Mi }
     limits: { memory: 384Mi }

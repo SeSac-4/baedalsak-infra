@@ -62,15 +62,24 @@ module "eks" {
     }
   }
 
-  access_entries = {
-    for i, arn in var.team_member_arns : "team-${i}" => {
+  # 인프라(var.infra_admin_users) = 클러스터 관리자 · 개발팀(TEAM_MEMBER_ARNS) = 전체 조회 + prod·monitoring 수정(로그·재시작·port-forward)
+  #   개발팀 IAM 이 AdministratorAccess 라 실수 방지용 구분 (보안 경계 아님)
+  access_entries = merge(
+    { for u in var.infra_admin_users : "admin-${u}" => {
+      principal_arn       = "arn:aws:iam::${local.account}:user/${u}"
+      policy_associations = { admin = { policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy", access_scope = { type = "cluster" } } }
+    } },
+    { for arn in local.team_arns : "team-${element(split("/", arn), 1)}" => {
       principal_arn = arn
       policy_associations = {
-        main = {
-          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/${var.team_member_policy}"
-          access_scope = { type = "cluster" }
-        }
+        view = { policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", access_scope = { type = "cluster" } }
+        edit = { policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", access_scope = { type = "namespace", namespaces = [local.namespace, "monitoring"] } }
       }
-    }
-  }
+    } },
+  )
+}
+
+locals {
+  # 관리자가 TEAM_MEMBER_ARNS 에도 있으면 같은 사용자 access entry 가 2개가 돼 apply 실패 → 개발팀 목록에서 뺌
+  team_arns = [for a in var.team_member_arns : a if !contains(var.infra_admin_users, element(split("/", a), 1))]
 }
