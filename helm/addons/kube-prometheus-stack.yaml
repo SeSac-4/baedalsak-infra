@@ -36,6 +36,10 @@ prometheus:
         - port: management
           path: /actuator/prometheus
           interval: 30s
+          # 공개 Spring Boot·JVM 대시보드가 application 라벨로 서비스를 고름 → 파드 라벨 service 를 복사
+          relabelings:
+            - sourceLabels: [__meta_kubernetes_pod_label_service]
+              targetLabel: application
 
 prometheusOperator:
   resources:
@@ -73,6 +77,24 @@ grafana:
     limits: { memory: 384Mi }
   # 권한은 Pod Identity <NAME>-grafana (CloudWatchReadOnlyAccess) — terraform/ephemeral/iam.tf
   serviceAccount: { name: grafana }
+  # Alertmanager 는 설치 안 함(알람은 CloudWatch → SNS) → 차트가 자동으로 만드는 Alertmanager 데이터 소스 끔
+  sidecar:
+    datasources:
+      alertmanager: { enabled: false }
+  # 공개 대시보드 (grafana.com ID) — 파드 시작 때 내려받음, 폴더 "배달싹"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - { name: baedalsak, folder: 배달싹, type: file, disableDeletion: true, options: { path: /var/lib/grafana/dashboards/baedalsak } }
+  dashboards:
+    baedalsak:
+      jvm-micrometer: { gnetId: 4701, revision: 10, datasource: Prometheus }
+      spring-boot-observability:
+        gnetId: 17175
+        revision: 2
+        datasource: [{ name: DS_PROMETHEUS, value: Prometheus }, { name: DS_LOKI, value: Loki }]
+      spring-boot-3x-statistics: { gnetId: 19004, revision: 1, datasource: Prometheus }
   # 앱 로그는 Loki, 추적은 Tempo, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
     # 로그 ↔ 추적 연결: 로그 JSON 의 "traceId" → Tempo 추적 열기 / 추적의 span → 그 서비스 Loki 로그 ($$ = provisioning 변수 치환 막음)
