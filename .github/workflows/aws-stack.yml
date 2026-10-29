@@ -61,8 +61,8 @@ env:
   TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
   TF_VAR_github_repo: ${{ github.repository }}
   TF_VAR_github_ref: ${{ github.event.repository.default_branch }}
-  TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '10' }}
-  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '5' }}
+  TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '20' }}
+  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '10' }}
   TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }} # 메일 주소는 Secret (공개 로그 노출 방지)
   TF_VAR_cost_report_sender: ${{ vars.COST_REPORT_SENDER || '' }}
   DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
