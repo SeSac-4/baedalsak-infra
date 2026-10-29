@@ -21,7 +21,8 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   addons = {
-    vpc-cni                = { before_compute = true }
+    # NetworkPolicy 적용 (aws-node 안의 network policy agent) — monitoring 의 Grafana 를 앱 파드에서 못 들어오게
+    vpc-cni                = { before_compute = true, configuration_values = jsonencode({ enableNetworkPolicy = "true" }) }
     eks-pod-identity-agent = { before_compute = true }
     kube-proxy             = {}
     coredns                = {}
