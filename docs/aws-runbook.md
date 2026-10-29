@@ -121,7 +121,7 @@ terraform -chdir=terraform/persistent plan
 
 | 시각 (KST) | 워크플로 | 하는 일 |
 |---|---|---|
-| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 ECR 에 마지막으로 빌드된 이미지를 배포. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
+| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 마지막으로 빌드된 이미지(SSM `<SSM_PREFIX>/image_tag`, 앱 이미지 빌드가 기록)를 배포. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
 | 19:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.

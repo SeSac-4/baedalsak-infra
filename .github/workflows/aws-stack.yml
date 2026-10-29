@@ -182,7 +182,17 @@ jobs:
         if: inputs.action == 'up'
         run: ./scripts/aws/cognito-cleanup.sh
 
-      # 예약 실행은 태그 입력이 없으므로 마지막으로 빌드된 이미지를 배포
+      # 앱 이미지 빌드가 부른 deploy = 6개 빌드 성공 → 이 태그를 "마지막 빌드"로 기록 (클러스터가 꺼져 있어도)
+      #   ECR 로 고르면 안 바뀐 서비스는 같은 이미지에 태그만 쌓여 옛 태그가 뽑힘 (10-29 aws-up 이 6be5d98 로 되돌림)
+      - name: record image tag
+        if: inputs.action == 'deploy' && inputs.image_tag != ''
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          aws ssm put-parameter --name "${SSM_PREFIX:-/$PROJECT/$ENV_NAME}/image_tag" --type String --overwrite --value "$IMAGE_TAG" >/dev/null
+          echo "마지막 빌드 태그 기록: $IMAGE_TAG"
+
+      # 예약 실행은 태그 입력이 없으므로 마지막으로 빌드된 이미지(SSM <SSM_PREFIX>/image_tag)를 배포
       - name: image tag
         id: tag
         if: inputs.action == 'up' || steps.cluster.outputs.up == 'true'
@@ -191,8 +201,7 @@ jobs:
         run: |
           TAG="$IMAGE_TAG"
           if [ -z "$TAG" ]; then
-            TAG=$(aws ecr describe-images --repository-name "${PROJECT}-${ENV_NAME}/gateway" \
-              --query 'sort_by(imageDetails[?imageTags], &imagePushedAt)[-1].imageTags[0]' --output text 2>/dev/null || true)
+            TAG=$(aws ssm get-parameter --name "${SSM_PREFIX:-/$PROJECT/$ENV_NAME}/image_tag" --query Parameter.Value --output text 2>/dev/null || true)
           fi
           if [ -z "$TAG" ] || [ "$TAG" = "None" ]; then
             echo "::warning::배포할 이미지가 없습니다 — 앱 이미지 빌드 워크플로를 먼저 실행하세요 (인프라만 켬)"
