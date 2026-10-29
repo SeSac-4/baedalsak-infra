@@ -67,6 +67,8 @@ grafana:
   # 로그인 없이 Editor(Explore 로 로그·추적 검색) — 외부 노출 없이 EKS 등록자만 port-forward 로 들어옴. 설정·데이터소스는 admin 로그인(인프라)
   grafana.ini:
     auth.anonymous: { enabled: true, org_role: Editor }
+    # 첫 화면(Home) = Spring Boot Observability (아래 dashboards 가 내려받은 파일)
+    dashboards: { default_home_dashboard_path: /var/lib/grafana/dashboards/baedalsak/spring-boot-observability.json }
   # 익명 Editor 라 클러스터 안 다른 파드(prod 앱 등)는 막음 — monitoring namespace 만 허용. port-forward 는 kubelet 경유라 영향 없음
   networkPolicy:
     enabled: true
