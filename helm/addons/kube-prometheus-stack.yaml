@@ -75,12 +75,28 @@ grafana:
   serviceAccount: { name: grafana }
   # 앱 로그는 Loki, 추적은 Tempo, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
+    # 로그 ↔ 추적 연결: 로그 JSON 의 "traceId" → Tempo 추적 열기 / 추적의 span → 그 서비스 Loki 로그 ($$ = provisioning 변수 치환 막음)
     - name: Loki
+      uid: loki
       type: loki
       url: http://loki.monitoring.svc.cluster.local:3100   # helm/addons/loki.yaml (gateway 없음)
+      jsonData:
+        derivedFields:
+          - name: traceId
+            matcherRegex: '"traceId":"(\w+)"'
+            url: "$${__value.raw}"
+            datasourceUid: tempo
     - name: Tempo
+      uid: tempo
       type: tempo
       url: http://tempo.monitoring.svc.cluster.local:3200  # helm/addons/tempo.yaml
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          tags: [{ key: service.name, value: service }]   # OTel service.name → Loki 라벨 service
+          filterByTraceID: true
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
     - name: CloudWatch
       type: cloudwatch
       jsonData:
