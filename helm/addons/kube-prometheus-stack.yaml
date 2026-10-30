@@ -192,8 +192,7 @@ grafana:
                 - &cost_n { refId: "N", relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: "N", instant: true, expr: 'count(kube_node_info)' } }
                 - refId: C
                   datasourceUid: __expr__
-                  # shortcut: 메일 서식 확인용 임시 기준 3 (원래 10) — 새 서식 메일 확인 후 10 으로 되돌림
-                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [3] } }] }
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [10] } }] }
             - uid: cost-forecast-20
               title: 오늘 예상 비용 20달러 초과
               condition: C
