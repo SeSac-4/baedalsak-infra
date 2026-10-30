@@ -76,7 +76,7 @@ grafana:
     explicitNamespacesSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
   resources:
     requests: { cpu: 50m, memory: 250Mi }
-    limits: { memory: 768Mi } # 10-30 실측: 평소 약 225Mi · 대시보드 조회 최고 524Mi (384Mi 일 땐 OOMKilled) → 최고 × 1.5
+    limits: { memory: 600Mi } # 10-30 실측: 평소 약 225Mi · 대시보드 조회 최고 524Mi (384Mi 일 땐 OOMKilled) — 또 죽으면 올림
   # 권한은 Pod Identity <NAME>-grafana (CloudWatchReadOnlyAccess) — terraform/ephemeral/iam.tf
   serviceAccount: { name: grafana }
   # Alertmanager 는 설치 안 함(알람은 CloudWatch → SNS) → 차트가 자동으로 만드는 Alertmanager 데이터 소스 끔
