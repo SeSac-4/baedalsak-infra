@@ -142,7 +142,8 @@ grafana:
                   model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
                 - refId: C
                   datasourceUid: __expr__
-                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [10] } }] }
+                  # shortcut: 메일 경로 시험용 임시 기준 3 (원래 10) — 메일 확인 후 10 으로 되돌림
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [3] } }] }
             - uid: cost-forecast-20
               title: 오늘 예상 비용 20달러 초과
               condition: C
