@@ -70,7 +70,7 @@ redisSession:
 dynamodb:
   enabled: false               # 사용 서비스가 정해지면 true
 
-routes: {}                     # gateway 전용: STORE_SERVICE_URL 등
+routes: {}                     # 다른 서비스 주소 env (gateway: 5개 · order: STORE·MEMBER · delivery: MEMBER — 서버 레포 docs/backend-infra-rules.md)
 secretKeys: []                 # 그 밖의 비밀값 — Secret 의 같은 이름 키를 주입 (gateway·member: JWT_SECRET, payment: TOSS_SECRET_KEY)
 externalSecretFrom: {}         # 운영: 다른 Secrets Manager 시크릿의 키도 Secret 에 담음 {키: <keyPrefix 뒤 이름>} — 예 { SEED_PASSWORD: seed }, 주입하려면 secretKeys 에도 추가
 externalSecretSsm: {}          # 운영: SSM 파라미터를 Secret 에 담아 같은 이름 환경 변수로 주입 {변수: <ssmPrefix 뒤 이름>} — 예 { COGNITO_USER_POOL_ID: cognito_user_pool_id }
