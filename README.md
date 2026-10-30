@@ -21,7 +21,8 @@
 ## AWS (EKS) — Terraform + GitHub Actions
 
 AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다** (EventBridge Scheduler → Step Functions → Lambda → GitHub Actions, Asia/Seoul).
-켜기·끄기 결과는 **실패했을 때만** 메일로 옵니다. 매일 09:00 에 전날 서비스별 비용 메일이 옵니다.
+켜기·끄기 결과는 **실패했을 때만** 메일로 옵니다. 매일 09:00 에 이틀 전·전날 서비스별 비용 메일이 옵니다.
+예산(Budgets)은 하루 $10 · $20 넘으면 메일만 보냅니다 (자동 끄기는 꺼 둠 — `budget_auto_down`).
 구성·처음 설정·실행 순서는 [`docs/aws-runbook.md`](docs/aws-runbook.md), 환경 변수 목록은 [`.env.example`](.env.example).
 
 | Actions 워크플로 | 실행 | 하는 일 |
@@ -35,6 +36,7 @@ AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다
 
 - 2026-10-21 테스트 레포에서 bootstrap → 상시 리소스 → 이미지 빌드 → 켜기(smoke test 통과) → 끄기(잔여 리소스 없음) 검증.
 - 2026-10-28 켜기 성공 — 관측(Prometheus · Grafana · Loki · Tempo) 포함, 파드 29개.
+- 2026-10-30 이미지 업로드(S3 · CloudFront `/images/*`) · 서비스 간 호출 주소(`routes`) · 비용 추정 대시보드 반영.
 
 ## 구성
 
@@ -193,19 +195,24 @@ curl -i http://localhost:18080/api/v1/stores
 | DynamoDB 사용 서비스 | 현재 주석 처리 (목록: `baedalsak-server/docs/backend-infra-rules.md` 9번). 정해지면 `services/*.yaml` 에 `dynamodb.enabled: true` (운영은 `serviceAccount.irsa: true` 도) |
 | 로컬 쿠버네티스 버전 | EKS 는 1.35 (레포 변수 `KUBERNETES_VERSION`). minikube 는 자리만 둠 (`K8S_VERSION`) |
 | gateway 의 RabbitMQ 사용 여부 | 쓰지 않으면 `services/gateway.yaml` 에 `rabbitmq.enabled: false` |
-| 메일 | SES 샌드박스(인증된 주소만 수신) — 프로덕션 액세스 요청 전. 메일 템플릿 관리 방식 결정 중. DMARC 레코드 없음 |
+| 메일 | SES 샌드박스(인증된 주소만 수신) — 프로덕션 액세스 요청 전. 템플릿은 앱 안(payment)에서 렌더링으로 결정. DMARC 레코드 없음 |
 | 매일 끄기 때 MQ 잔여 메시지 | 브로커와 함께 사라짐 — 손실 허용 여부 미정 |
+| MQ DLQ 알림 | Amazon MQ(RabbitMQ)는 큐 단위 CloudWatch 지표가 없어 DLQ 개수로 알림 불가 → Grafana 로그 알림(MQ 리스너 실패)으로 대신 |
 
 ## 관측 (AWS)
 
 | 항목 | 경로 | 상태 |
 |---|---|---|
-| 지표 | 앱 `:8081/actuator/prometheus` → Prometheus(보관 1일) → Grafana | store · order 는 서버 노출 설정 대기 |
+| 지표 | 앱 `:8081/actuator/prometheus` → Prometheus(보관 1일) → Grafana | 동작 (앱 7개 수집) |
 | 로그 | 파드 stdout → Fluent Bit → Loki → S3 (14일) → Grafana | 동작 |
-| 추적 | 앱(OpenTelemetry) → Tempo → S3 (14일) → Grafana | Tempo 설치됨, 서버 OpenTelemetry 전환 대기 |
-| 알람 | CloudWatch 알람 5개(ALB 5xx · gateway unhealthy · RDS CPU·저장공간 · Redis 메모리) → SNS → 메일 | 동작 |
+| 추적 | 앱(OpenTelemetry) → Tempo → S3 (14일) → Grafana | 동작. 로그 ↔ 추적 연결 (Loki traceId → Tempo, Tempo span → Loki) |
+| 대시보드 | 첫 화면 Spring Boot Observability · 배달싹 폴더(JVM · Spring Boot 3.x) · 배달싹 비용 (추정) | 켤 때마다 자동 생성 |
+| 알람 (CloudWatch) | 5개(ALB 5xx · gateway unhealthy · RDS CPU·저장공간 · Redis 메모리) → SNS → 메일 | 울릴 때만 (OK 메일 없음) |
+| 알람 (Grafana) | 비용 추정(오늘 예상 10·20달러, 시간당 1.5달러) · 앱 ERROR 로그 5분 10건 이상 · MQ 리스너 처리 실패 → SNS → 메일 | 켜져 있을 때만 |
 
-Grafana 는 외부에 열지 않습니다 — 접속 방법은 `docs/aws-runbook.md`. 백엔드 설정 요청은 `docs/관측성/배달싹_관측성_백엔드_설정요청_v1.md`.
+Grafana 는 외부에 열지 않습니다 — EKS 에 등록된 사람만 `kubectl port-forward` 로 접속, 로그인 없이 Editor (설정은 admin). 앱 파드에서는 NetworkPolicy 로 막힘.
+EKS 권한: 인프라(`infra_admin_users`) = 관리자, 개발팀(`TEAM_MEMBER_ARNS` Secret) = 전체 조회 + `prod` · `monitoring` 수정.
+접속 방법은 `docs/aws-runbook.md`. 백엔드 설정 요청(완료)은 `docs/관측성/배달싹_관측성_백엔드_설정요청_v1.md`.
 
 ## 문서
 
