@@ -142,7 +142,8 @@ resource "aws_eks_pod_identity_association" "grafana" {
 }
 
 # ---------- store → S3 이미지 (presigned PUT URL 서명 · 업로드 확인 HeadObject) — 버킷은 persistent/images.tf ----------
-#   presigned URL 은 서명한 주체(store 역할)의 권한으로 실행됨 → stores/* 에만 PutObject
+#   presigned URL 은 서명한 주체(store 역할)의 권한으로 실행됨 → stores/ 아래 이미지 확장자 키에만 PutObject
+#   (서버가 다른 형식을 서명해도 S3 가 AccessDenied — 확장자는 소문자 jpg·jpeg·png·webp)
 resource "aws_iam_role" "store_images" {
   name               = "${local.name}-store-images"
   assume_role_policy = data.aws_iam_policy_document.pod_trust.json
@@ -153,7 +154,7 @@ resource "aws_iam_role_policy" "store_images" {
   role = aws_iam_role.store_images.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = "${local.p.image_bucket_arn}/stores/*" }]
+    Statement = [{ Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = [for e in ["jpg", "jpeg", "png", "webp"] : "${local.p.image_bucket_arn}/stores/*.${e}"] }]
   })
 }
 

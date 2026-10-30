@@ -101,12 +101,16 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = local.p.images_headers_policy_id # nosniff · CSP sandbox (persistent/images.tf)
     compress                   = true
 
     function_association {
       event_type   = "viewer-request"
       function_arn = local.p.images_function_arn
+    }
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = local.p.images_type_function_arn
     }
   }
 

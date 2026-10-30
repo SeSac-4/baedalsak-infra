@@ -49,7 +49,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "images" {
   }
 }
 
-# /images/stores/1/a.jpg → /stores/1/a.jpg (버킷 키에는 /images 가 없음). /images/* behavior 에만 붙임
+# 사용자가 올린 파일을 우리 도메인에서 보여 주므로 이미지(jpg·jpeg·png·webp)만 통과 — 서버 검증과 별개로 인프라에서 3중으로
+#   ① 업로드: store 역할이 이 확장자 키에만 PutObject (ephemeral/iam.tf) → 다른 확장자 presigned URL 은 S3 가 거부
+#   ② 요청  : 아래 함수가 그 밖의 경로는 404, 통과하면 /images/stores/1/a.jpg → /stores/1/a.jpg (버킷 키엔 /images 없음)
+#   ③ 응답  : 확장자로 Content-Type 고정 + nosniff · CSP sandbox → 내용이 HTML·SVG 여도 브라우저가 실행하지 않음
 resource "aws_cloudfront_function" "images" {
   name    = "${local.name}-images-path"
   runtime = "cloudfront-js-2.0"
@@ -57,10 +60,49 @@ resource "aws_cloudfront_function" "images" {
   code    = <<-EOT
     function handler(event) {
       var req = event.request;
+      if (!/^\/images\/stores\/.+\.(jpg|jpeg|png|webp)$/.test(req.uri)) {
+        return { statusCode: 404, statusDescription: 'Not Found' };
+      }
       req.uri = req.uri.replace(/^\/images\//, '/');
       return req;
     }
   EOT
+}
+
+resource "aws_cloudfront_function" "images_type" {
+  name    = "${local.name}-images-type"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = <<-EOT
+    var TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+    function handler(event) {
+      var res = event.response;
+      if (res.statusCode !== 200) { return res; }
+      var ext = event.request.uri.split('.').pop();
+      res.headers['content-type'] = { value: TYPES[ext] || 'application/octet-stream' };
+      return res;
+    }
+  EOT
+}
+
+resource "aws_cloudfront_response_headers_policy" "images" {
+  name = "${local.name}-images"
+  security_headers_config {
+    content_type_options { override = true }
+    content_security_policy {
+      content_security_policy = "default-src 'none'; img-src 'self'; sandbox"
+      override                = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      override                   = true
+    }
+  }
 }
 
 # deploy.sh 가 store 에 env 로 넣음 (IMAGE_BUCKET · IMAGE_BASE_URL)
@@ -90,4 +132,12 @@ output "image_bucket_domain" {
 
 output "images_function_arn" {
   value = aws_cloudfront_function.images.arn
+}
+
+output "images_type_function_arn" {
+  value = aws_cloudfront_function.images_type.arn
+}
+
+output "images_headers_policy_id" {
+  value = aws_cloudfront_response_headers_policy.images.id
 }
