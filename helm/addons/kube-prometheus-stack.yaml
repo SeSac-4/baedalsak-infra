@@ -76,7 +76,7 @@ grafana:
     explicitNamespacesSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
   resources:
     requests: { cpu: 50m, memory: 250Mi }
-    limits: { memory: 1Gi }   # 384Mi 에서 대시보드 조회 중 OOMKilled (10-29), 평소 약 240Mi — 최고치 잰 뒤 줄임
+    limits: { memory: 768Mi } # 10-30 실측: 평소 약 225Mi · 대시보드 조회 최고 524Mi (384Mi 일 땐 OOMKilled) → 최고 × 1.5
   # 권한은 Pod Identity <NAME>-grafana (CloudWatchReadOnlyAccess) — terraform/ephemeral/iam.tf
   serviceAccount: { name: grafana }
   # Alertmanager 는 설치 안 함(알람은 CloudWatch → SNS) → 차트가 자동으로 만드는 Alertmanager 데이터 소스 끔
@@ -173,6 +173,42 @@ grafana:
                 - refId: C
                   datasourceUid: __expr__
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [1.5] } }] }
+        # 앱 로그 (Loki) — 서비스별로 따로 알림 (메일 제목에 서비스 이름)
+        - orgId: 1
+          name: app-logs
+          folder: 배달싹
+          interval: 1m
+          rules:
+            - uid: app-error-logs
+              title: 앱 ERROR 로그 급증
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "5분 동안 ERROR 로그 10건 이상 — Grafana Explore Loki 로 그 서비스 확인" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: loki
+                  model: { refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({namespace="prod", level="ERROR"}[5m]))' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [9] } }] }
+            - uid: app-mq-listener-failed
+              title: MQ 메시지 처리 실패 (DLQ 가능)
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "MQ 리스너가 메시지 처리에 실패 — 재시도가 다 실패하면 DLQ 로 감. MQ 콘솔 Queues 의 .dlq 확인 (docs 결제메일_테스트 5절)" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: loki
+                  model: { refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({namespace="prod"} |~ "(?i)listener failed|PermanentMailFailure" [5m]))' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [0] } }] }
   # 앱 로그는 Loki, 추적은 Tempo, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
     # 로그 ↔ 추적 연결: 로그 JSON 의 "traceId" → Tempo 추적 열기 / 추적의 span → 그 서비스 Loki 로그 ($$ = provisioning 변수 치환 막음)
