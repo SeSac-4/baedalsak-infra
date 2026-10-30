@@ -67,6 +67,8 @@ grafana:
   # 로그인 없이 Editor(Explore 로 로그·추적 검색) — 외부 노출 없이 EKS 등록자만 port-forward 로 들어옴. 설정·데이터소스는 admin 로그인(인프라)
   grafana.ini:
     auth.anonymous: { enabled: true, org_role: Editor }
+    # 알림 메일 · 공유 링크의 주소. localhost 는 Windows 에서 IPv6(::1)로 먼저 가 WSL port-forward 에 안 닿을 때가 있어 127.0.0.1
+    server: { root_url: "http://127.0.0.1:3000" }
     # 첫 화면(Home) = Spring Boot Observability (아래 dashboards 가 내려받은 파일)
     dashboards: { default_home_dashboard_path: /var/lib/grafana/dashboards/baedalsak/spring-boot-observability.json }
   # 익명 Editor 라 클러스터 안 다른 파드(prod 앱 등)는 막음 — monitoring namespace 만 허용. port-forward 는 kubelet 경유라 영향 없음
@@ -112,7 +114,35 @@ grafana:
                 topic_arn: "${ALERTS_TOPIC_ARN}"   # addons.sh grafana.env (SSM alerts_topic_arn) — Grafana 가 provisioning 때 치환
                 sigv4:
                   region: "${AWS_REGION}"
-                subject: "[baedalsak-prod] cost estimate alert"
+                # SNS 메일 제목은 ASCII 만 (한글이면 발송 실패) · 본문은 아래 templates.yaml
+                subject: '{{`[baedalsak-prod] {{ if eq .Status "firing" }}ALERT{{ else }}RESOLVED{{ end }} - {{ len .Alerts }} alert(s)`}}'
+                message: '{{`{{ template "baedalsak.sns.message" . }}`}}'
+    # 메일 본문 (SNS 는 텍스트 메일). 차트가 이 값을 helm tpl 로 한 번 더 처리 → {{` … `}} 로 감싸 그대로 넘김
+    #   provisioning 이 $이름 을 환경 변수로 치환하므로 Go 템플릿 변수($x)를 쓰지 않음
+    templates.yaml:
+      apiVersion: 1
+      templates:
+        - orgId: 1
+          name: baedalsak-sns
+          template: |
+            {{`{{ define "baedalsak.sns.message" }}
+            {{- if eq .Status "firing" }}[알림 발생] 배달싹 prod — {{ len .Alerts.Firing }}건{{ else }}[해결됨] 배달싹 prod — {{ len .Alerts.Resolved }}건{{ end }}
+            ==================================================
+            {{ range .Alerts }}
+            ■ {{ .Labels.alertname }}{{ if .Labels.service }}  ({{ .Labels.service }}){{ end }}
+              상태 : {{ if eq .Status "firing" }}발생{{ else }}해결{{ end }}
+              내용 : {{ .Annotations.summary }}
+              값   : {{ with .Values.A }}{{ printf "%.2f" . }}{{ else }}-{{ end }}
+              시각 : {{ .StartsAt | tz "Asia/Seoul" | date "2006-01-02 15:04" }} (KST)
+              규칙 : {{ .GeneratorURL }}
+              잠시 끄기 : {{ .SilenceURL }}
+            --------------------------------------------------
+            {{ end }}
+            ▶ 비용 대시보드 : http://127.0.0.1:3000/d/baedalsak-cost
+            ▶ 로그 (Loki)  : http://127.0.0.1:3000/explore
+            ※ 링크는 내 PC 에서 port-forward 를 켜 둔 동안만 열림:
+              kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+            {{ end }}`}}
     policies.yaml:
       apiVersion: 1
       policies:
@@ -142,7 +172,7 @@ grafana:
                   model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
                 - refId: C
                   datasourceUid: __expr__
-                  # shortcut: 메일 경로 시험용 임시 기준 3 (원래 10) — 메일 확인 후 10 으로 되돌림
+                  # shortcut: 메일 서식 확인용 임시 기준 3 (원래 10) — 새 서식 메일 확인 후 10 으로 되돌림
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [3] } }] }
             - uid: cost-forecast-20
               title: 오늘 예상 비용 20달러 초과
