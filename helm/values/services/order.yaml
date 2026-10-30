@@ -10,3 +10,7 @@ autoscaling:                   # AWS 기준 (로컬은 values/local.yaml 에서 
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 65
+
+routes:
+  STORE_SERVICE_URL: http://store:8080
+  MEMBER_SERVICE_URL: http://member:8080
