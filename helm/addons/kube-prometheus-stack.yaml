@@ -133,6 +133,22 @@ grafana:
               상태 : {{ if eq .Status "firing" }}발생{{ else }}해결{{ end }}
               내용 : {{ .Annotations.summary }}
               값   : {{ with .Values.A }}{{ printf "%.2f" . }}{{ else }}-{{ end }}
+            {{- if .Values.H }}
+              항목별 시간당 (추정 · 달러, 대시보드 '항목별 시간당' 과 같은 값)
+                · EC2 노드 (t3.large × {{ printf "%.0f" .Values.N }}대) : {{ printf "%.3f" .Values.E }}
+                · Amazon MQ : 0.197
+                · NAT · 디스크 (EC2 기타) : 0.104
+                · EKS 컨트롤 플레인 : 0.100
+                · CloudWatch : 0.048
+                · RDS : 0.028
+                · ALB : 0.024
+                · ElastiCache : 0.018
+                · Secrets Manager : 0.013
+                · 공인 IPv4 : 0.010
+                · bastion : 0.0065
+                · S3 · ECR · CloudTrail · 기타 : 0.003
+                = 합계 : {{ printf "%.3f" .Values.H }} /시간
+            {{- end }}
               시각 : {{ .StartsAt | tz "Asia/Seoul" | date "2006-01-02 15:04" }} (KST)
               규칙 : {{ .GeneratorURL }}
               잠시 끄기 : {{ .SilenceURL }}
@@ -170,6 +186,10 @@ grafana:
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
                   model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                # 메일 본문 항목별 시간당 (templates.yaml) — H 합계 · E EC2 노드 · N 노드 수
+                - &cost_h { refId: H, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: H, instant: true, expr: '0.5515 + 0.104 * count(kube_node_info)' } }
+                - &cost_e { refId: E, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: E, instant: true, expr: '0.104 * count(kube_node_info)' } }
+                - &cost_n { refId: "N", relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: "N", instant: true, expr: 'count(kube_node_info)' } }
                 - refId: C
                   datasourceUid: __expr__
                   # shortcut: 메일 서식 확인용 임시 기준 3 (원래 10) — 새 서식 메일 확인 후 10 으로 되돌림
@@ -186,6 +206,9 @@ grafana:
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
                   model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                - *cost_h
+                - *cost_e
+                - *cost_n
                 - refId: C
                   datasourceUid: __expr__
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [20] } }] }
@@ -201,6 +224,9 @@ grafana:
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
                   model: { refId: A, instant: true, expr: '(0.5515 + 0.104 * count(kube_node_info))' }
+                - *cost_h
+                - *cost_e
+                - *cost_n
                 - refId: C
                   datasourceUid: __expr__
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [1.5] } }] }
