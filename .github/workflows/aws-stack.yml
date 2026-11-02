@@ -11,6 +11,7 @@
 #   필수: DOMAIN_NAME (Route 53 에서 구매한 도메인)
 #   선택: BUDGET_DAILY_USD · BUDGET_WARN_USD · COST_REPORT_SENDER · CLUSTER_NAME · SECRET_PREFIX · SSM_PREFIX · OPS_COGNITO_DOMAIN_PREFIX
 #   레포 Secret(선택): TEAM_MEMBER_ARNS · ALERT_EMAILS (알림 메일 JSON 배열, 예 ["a@b.com"]) — 공개 로그에 안 남게 Secret 으로 (호출부 secrets: inherit)
+#   레포 Secret(선택): OPS_ADMIN_EMAILS · OPS_VIEWER_EMAILS (Grafana 운영자, 쉼표 구분) — 같은 이유로 Secret
 # =============================================================================
 name: (공통) AWS 스택 실행
 
@@ -78,10 +79,12 @@ jobs:
       - name: mask
         env:
           ALERT_EMAILS: ${{ secrets.ALERT_EMAILS }}
+          OPS_EMAILS: ${{ secrets.OPS_ADMIN_EMAILS }},${{ secrets.OPS_VIEWER_EMAILS }}
         run: |
           t="$(jq -r '.inputs.task_token // empty' "$GITHUB_EVENT_PATH")"
           if [ -n "$t" ]; then echo "::add-mask::$t"; fi
           for e in $(echo "${ALERT_EMAILS:-[]}" | jq -r '.[]'); do echo "::add-mask::$e"; done
+          for e in ${OPS_EMAILS//,/ }; do echo "::add-mask::$e"; done
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -153,6 +156,13 @@ jobs:
       - name: apply persistent
         if: inputs.action == 'persistent' || inputs.action == 'up'
         run: terraform -chdir=terraform/persistent apply -input=false -auto-approve
+
+      - name: 운영자 Cognito 사용자
+        if: inputs.action == 'persistent' || inputs.action == 'up'
+        env:
+          OPS_ADMIN_EMAILS: ${{ secrets.OPS_ADMIN_EMAILS }}
+          OPS_VIEWER_EMAILS: ${{ secrets.OPS_VIEWER_EMAILS }}
+        run: ./scripts/aws/ops-users.sh
 
       # 개발 기간: RDS 는 매일 빈 DB 로 생성 (스냅샷 없음 — terraform/ephemeral/data.tf)
       - name: apply ephemeral
