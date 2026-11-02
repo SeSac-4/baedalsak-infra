@@ -71,3 +71,8 @@ variable "infra_admin_users" {
   default     = ["sesac-d5"]
 }
 
+variable "front_csp" {
+  description = "프론트 CSP (응답 헤더 정책, edge.tf). 토스 결제위젯 · S3 presigned 업로드 기준 초안"
+  type        = string
+  default     = "default-src 'self'; script-src 'self' https://*.tosspayments.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tosspayments.com; font-src 'self' data:; connect-src 'self' https://*.tosspayments.com https://*.amazonaws.com; frame-src https://*.tosspayments.com; form-action 'self' https://*.tosspayments.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+}
