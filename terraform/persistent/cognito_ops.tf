@@ -7,10 +7,9 @@ locals {
   ops_hosted_ui     = "https://${local.ops_domain_prefix}.auth.${var.region}.amazoncognito.com"
   ops_groups        = ["grafana-admin", "grafana-viewer"]
   grafana_login_url = "https://${var.domain_name}/grafana/login"
-  # env_prefix: Secrets Manager 키 접두사 — grafana 는 GF_* 이름 그대로 파드 환경 변수가 됨 (ESO → envFromSecrets)
   ops_clients = {
-    alb     = { callback = ["https://${var.domain_name}/oauth2/idpresponse"], logout = [], env_prefix = "ALB" }
-    grafana = { callback = ["${local.grafana_login_url}/generic_oauth"], logout = [local.grafana_login_url], env_prefix = "GF_AUTH_GENERIC_OAUTH" }
+    alb     = { callback = ["https://${var.domain_name}/oauth2/idpresponse"] }
+    grafana = { callback = ["${local.grafana_login_url}/generic_oauth"] }
   }
 }
 
@@ -87,26 +86,24 @@ resource "aws_cognito_user_pool_client" "ops" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   supported_identity_providers         = ["COGNITO"]
   callback_urls                        = each.value.callback
-  logout_urls                          = each.value.logout
+  logout_urls                          = [local.grafana_login_url]
 
   explicit_auth_flows           = ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
   enable_token_revocation       = true
 }
 
-# 앱 클라이언트 비밀값 — grafana 는 ESO 가 monitoring 으로 주입 (addons.sh). alb 는 보관용: ALB 규칙은 비밀값 없이 풀에서 직접 읽음
-resource "aws_secretsmanager_secret" "ops_cognito" {
-  for_each                = local.ops_clients
-  name                    = "${local.secret_prefix}/ops-cognito-${each.key}"
+# Grafana 앱 클라이언트 비밀값 — ESO 가 monitoring 으로 주입, 키 이름 = GF_* 환경 변수 (addons.sh). ALB 규칙은 비밀값 없이 풀에서 직접 읽어서 저장하지 않음
+resource "aws_secretsmanager_secret" "ops_cognito_grafana" {
+  name                    = "${local.secret_prefix}/ops-cognito-grafana"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "ops_cognito" {
-  for_each  = local.ops_clients
-  secret_id = aws_secretsmanager_secret.ops_cognito[each.key].id
+resource "aws_secretsmanager_secret_version" "ops_cognito_grafana" {
+  secret_id = aws_secretsmanager_secret.ops_cognito_grafana.id
   secret_string = jsonencode({
-    "${each.value.env_prefix}_CLIENT_ID"     = aws_cognito_user_pool_client.ops[each.key].id
-    "${each.value.env_prefix}_CLIENT_SECRET" = aws_cognito_user_pool_client.ops[each.key].client_secret
+    GF_AUTH_GENERIC_OAUTH_CLIENT_ID     = aws_cognito_user_pool_client.ops["grafana"].id
+    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET = aws_cognito_user_pool_client.ops["grafana"].client_secret
   })
 }
 
