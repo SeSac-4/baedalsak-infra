@@ -104,8 +104,9 @@ terraform -chdir=terraform/persistent plan
 | `BUDGET_WARN_USD` | 선택 | 일일 비용 경고 USD (기본 10) — 넘으면 메일만 |
 | `COST_REPORT_SENDER` | 선택 | 일일 비용 메일 발신 주소 (기본 `cost-report@<DOMAIN_NAME>`) |
 | `CLUSTER_NAME` · `SECRET_PREFIX` · `SSM_PREFIX` | 선택 | 비우면 이름 규칙 |
+| `OPS_COGNITO_DOMAIN_PREFIX` | 선택 | 운영자 Cognito Hosted UI 접두사 (기본 `<PROJECT>-ops`, AWS 전체에서 고유) |
 
-**Secrets** (선택): `ALERT_EMAILS` — 알림 메일 JSON 배열 `["<메일>@example.com"]` (알람·켜기/끄기 결과·예산). 공개 레포라 Variables 가 아닌 Secret (로그에 `***`). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 / `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
+**Secrets** (선택): `OPS_ADMIN_EMAILS` · `OPS_VIEWER_EMAILS` — Grafana 운영자 이메일, 쉼표 구분. 공개 레포 로그에 남지 않게 Variables 가 아닌 Secret / `ALERT_EMAILS` — 알림 메일 JSON 배열 `["<메일>@example.com"]` (알람·켜기/끄기 결과·예산). 공개 레포라 Variables 가 아닌 Secret (로그에 `***`). 처음 apply 후 "AWS Notification - Subscription Confirmation" 메일의 링크를 1회 클릭 / `SERVER_REPO_TOKEN` — 서버 레포가 private 일 때만. 서버 레포 `Contents: Read` 권한의 fine-grained PAT. 없으면 기본 `github.token` 으로 체크아웃합니다.
 
 워크플로 버튼(workflow_dispatch)은 **기본 브랜치에 있는 워크플로만** 보입니다. 기본 브랜치(main)에 push 한 뒤 실행하세요.
 
@@ -237,19 +238,37 @@ aws eks update-kubeconfig --name baedalsak-prod --region ap-northeast-2
 kubectl -n prod get pods; kubectl -n prod logs deploy/order
 ```
 
-### Grafana · Prometheus (켜져 있을 때, 외부 노출 없음)
+### Grafana · Prometheus (켜져 있을 때)
 
 `addons.sh` 가 namespace `monitoring` 에 kube-prometheus-stack(`helm/addons/kube-prometheus-stack.yaml`, 차트 92.14.0)을 설치합니다.
 디스크 없음(보존 1일, 끄면 사라짐) · Alertmanager 없음(알람은 CloudWatch → 메일) · 앱 6개의 8081 `/actuator/prometheus` 를 PodMonitor `baedalsak-apps` 로 수집(백엔드가 노출 전이면 대상이 down 으로만 보임).
 
+- **접속: `https://<DOMAIN_NAME>/grafana`** — CloudFront → internal ALB(운영자 Cognito 인증) → Grafana. 로그인은 Cognito 화면에서 한 번만
+- 꺼진 시간(평일 18:00~09:30 · 주말)에는 CloudFront · ALB 가 없어서 열리지 않습니다
+- 권한: 그룹 `grafana-admin` → Admin, `grafana-viewer` → Viewer, 그룹이 없으면 로그인 거부. 요청 로그는 Loki `{namespace="monitoring"}`
+
+**계정 만들기:** 레포 Secret `OPS_ADMIN_EMAILS` · `OPS_VIEWER_EMAILS`(쉼표 구분)에 이메일을 넣고 "AWS 상시 리소스 적용" 또는 다음 켜기를 실행합니다. `scripts/aws/ops-users.sh` 가 없는 사용자를 만들고(임시 비밀번호는 Cognito 초대 메일, 7일 유효) 그룹에 넣습니다. 여러 번 실행해도 안전하고, 목록에서 빼도 계정은 지워지지 않으므로 퇴장한 사람은 콘솔(Cognito → 사용자 풀 `<NAME>-ops`)에서 직접 지웁니다.
+
+**비상 접속** (Cognito · ALB 장애 때, EKS 접근 등록 필요):
 ```bash
-aws eks update-kubeconfig --name baedalsak-prod --region ap-northeast-2
-# admin 비밀번호 (Secrets Manager <SECRET_PREFIX>/grafana, 아이디 admin)
+./scripts/aws/tunnel.sh grafana    # 터미널을 켜 둔 채로
+# 브라우저 http://127.0.0.1:3000/grafana/login?disableAutoLogin=true (자동 로그인을 건너뛰는 주소, /grafana 를 빼면 공개 주소로 넘어감)
+# 아이디 admin, 비밀번호 (Secrets Manager <SECRET_PREFIX>/grafana)
 aws secretsmanager get-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/grafana \
   --query SecretString --output text | jq -r '."admin-password"'
-kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80                        # http://localhost:3000
 kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090   # http://localhost:9090/targets
 ```
+
+**프론트 CSP:** 지금은 `Content-Security-Policy-Report-Only` 라 막지 않고 브라우저 콘솔에 위반만 표시합니다. 값은 `terraform/ephemeral/variables.tf` 의 `front_csp`. 차단으로 바꾸는 순서:
+1. 결제 · 이미지 업로드를 포함해 화면을 돌며 개발자 도구 콘솔에 CSP 위반이 없는지 확인, 있으면 `front_csp` 를 고침
+2. `terraform/ephemeral/edge.tf` 의 `aws_cloudfront_response_headers_policy.front` 에서 `custom_headers_config` 를 지우고 `security_headers_config` 안에 아래를 추가
+```hcl
+content_security_policy {
+  content_security_policy = var.front_csp
+  override                = true
+}
+```
+3. 다음 켜기 뒤 결제 화면을 다시 확인. 문제가 생기면 2번을 되돌림
 
 - 앱 로그: Grafana → Explore → 데이터소스 **Loki** → 예 `{namespace="prod", service="payment", level="ERROR"}`, traceId 는 `|= "<traceId>"` 로 본문 검색
   - 경로: 파드 stdout → Fluent Bit(kube-system) → Loki(monitoring, 파드 1개) → S3 `<NAME>-loki-<계정>` 14일. 클러스터가 꺼진 시간(평일 18:00~09:30·주말)엔 조회 불가, 다음 켜기 때 지난 로그 그대로 조회

@@ -2,7 +2,8 @@
 # kube-prometheus-stack (namespace monitoring) — scripts/aws/addons.sh 가 설치
 #   디스크 없음(EBS CSI 없음 → PVC 금지): Prometheus·Grafana 모두 emptyDir, 매일 끄기 때 함께 사라짐
 #   알람은 기존 CloudWatch → SNS → 메일 → Alertmanager 끔
-#   Grafana 는 외부 노출 없음(ClusterIP) — kubectl port-forward 로 접속, admin 비밀번호는 ESO Secret grafana-admin
+#   Grafana 는 https://<DOMAIN_NAME>/grafana — CloudFront → ALB(운영자 Cognito 인증) → 파드 (TargetGroupBinding 은 addons.sh)
+#   비상 접속은 tunnel.sh grafana + 내장 admin (ESO Secret grafana-admin)
 # =============================================================================
 alertmanager:
   enabled: false
@@ -64,14 +65,36 @@ grafana:
     existingSecret: grafana-admin   # addons.sh 의 ExternalSecret (Secrets Manager <SECRET_PREFIX>/grafana)
     userKey: admin-user
     passwordKey: admin-password
-  # 로그인 없이 Editor(Explore 로 로그·추적 검색) — 외부 노출 없이 EKS 등록자만 port-forward 로 들어옴. 설정·데이터소스는 admin 로그인(인프라)
+  # 서브패스(/grafana)를 켜면 /metrics 가 공개 주소로 리다이렉트돼 수집이 끊김 → 서브패스 경로로 수집
+  serviceMonitor: { path: /grafana/metrics }
+  # 키가 GF_AUTH_GENERIC_OAUTH_CLIENT_ID · _CLIENT_SECRET 인 ESO Secret (addons.sh, Secrets Manager <SECRET_PREFIX>/ops-cognito-grafana)
+  envFromSecrets:
+    - name: grafana-oauth
+  # 도메인 · Cognito 주소(root_url, auth/token/api_url, signout_redirect_url)는 addons.sh 가 SSM 값을 GF_* 환경 변수로 넘김
   grafana.ini:
-    auth.anonymous: { enabled: true, org_role: Editor }
-    # 알림 메일 · 공유 링크의 주소. localhost 는 Windows 에서 IPv6(::1)로 먼저 가 WSL port-forward 에 안 닿을 때가 있어 127.0.0.1
-    server: { root_url: "http://127.0.0.1:3000" }
+    # 요청 로그 = 누가 무엇을 봤는지 (JSON 의 level · uname 을 Fluent Bit → Loki 가 수집)
+    server: { serve_from_sub_path: true, router_logging: true }
+    log: { mode: console }
+    log.console: { format: json }
+    auth.anonymous: { enabled: false }
+    # 운영자 풀은 관리자만 계정을 만들고 이메일을 못 바꿔서 이메일로 기존 계정을 연결해도 안전
+    auth: { oauth_allow_insecure_email_lookup: true }
+    # Viewer 도 Explore(로그·추적 검색) — 13.2.4 에서 deprecated 표시만, Viewer 에 데이터소스 탐색 역할을 줌. 대시보드 저장 · 데이터소스 · 설정은 Admin 만
+    #   이 설정이 없어지는 버전으로 올리면 role_attribute_path 의 grafana-viewer 를 'Editor' 로 바꿈 (대시보드는 Git 관리 · 매일 초기화)
+    users: { viewers_can_edit: true }
+    # id 토큰의 cognito:groups → 역할. ALB 에서 로그인한 Cognito 세션이 있어 자동으로 넘어감
+    auth.generic_oauth:
+      enabled: true
+      name: 배달싹 운영자
+      scopes: openid email profile
+      email_attribute_path: email
+      role_attribute_path: contains("cognito:groups" || `[]`, 'grafana-admin') && 'Admin' || contains("cognito:groups" || `[]`, 'grafana-viewer') && 'Viewer'
+      role_attribute_strict: true
+      allow_sign_up: true
+      auto_login: true
     # 첫 화면(Home) = Spring Boot Observability (아래 dashboards 가 내려받은 파일)
     dashboards: { default_home_dashboard_path: /var/lib/grafana/dashboards/baedalsak/spring-boot-observability.json }
-  # 익명 Editor 라 클러스터 안 다른 파드(prod 앱 등)는 막음 — monitoring namespace 만 허용. port-forward 는 kubelet 경유라 영향 없음
+  # 차트 정책은 monitoring 네임스페이스(Prometheus)만 허용, ALB 서브넷 대역은 addons.sh 의 NetworkPolicy grafana-alb
   networkPolicy:
     enabled: true
     allowExternal: false
@@ -154,10 +177,9 @@ grafana:
               잠시 끄기 : {{ .SilenceURL }}
             --------------------------------------------------
             {{ end }}
-            ▶ 비용 대시보드 : http://127.0.0.1:3000/d/baedalsak-cost
-            ▶ 로그 (Loki)  : http://127.0.0.1:3000/explore
-            ※ 링크는 내 PC 에서 port-forward 를 켜 둔 동안만 열림:
-              kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+            ▶ 비용 대시보드 : {{ .ExternalURL }}d/baedalsak-cost
+            ▶ 로그 (Loki)  : {{ .ExternalURL }}explore
+            ※ 운영자 계정으로 로그인. 꺼진 시간에는 열리지 않음
             {{ end }}`}}
     policies.yaml:
       apiVersion: 1

@@ -2,9 +2,10 @@
 # 진입 (CloudFront · VPC origin · Route 53 alias) — ALB 와 함께 매일 만들고 지움
 #   VPC origin 은 ALB ARN 에 묶이고, 배포가 VPC origin 을 쓰는 동안 둘 다 지울 수 없어서 배포까지 ephemeral 에 둠
 #   (S3 프론트 · OAC · CF Function · 인증서는 persistent)
-#   behavior ① /api/*  → VPC origin(internal ALB 443) · CachingDisabled · AllViewer
+#   behavior ① /api/* · /grafana · /grafana/* · /oauth2/* → VPC origin(internal ALB 443) · CachingDisabled · AllViewer
+#              Grafana 인증은 ALB 규칙 (alb.tf), /oauth2/* 는 Cognito 콜백
 #   behavior ② /images/* → S3 이미지(OAC) · CachingOptimized · CF Function(/images 떼기) — persistent/images.tf
-#   behavior ③ 기본 *  → S3(OAC) · CachingOptimized · CF Function(SPA 경로) · SecurityHeadersPolicy
+#   behavior ③ 기본 *  → S3(OAC) · CachingOptimized · CF Function(SPA 경로) · 프론트 응답 헤더 정책(보안 헤더 + CSP Report-Only)
 # =============================================================================
 
 resource "aws_cloudfront_vpc_origin" "alb" {
@@ -49,8 +50,41 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
 
-data "aws_cloudfront_response_headers_policy" "security" {
-  name = "Managed-SecurityHeadersPolicy"
+# 관리형 SecurityHeadersPolicy 와 같은 값 + CSP — 관리형 정책엔 헤더를 더할 수 없음
+#   Report-Only 라 막지 않고 브라우저 콘솔에만 위반을 표시. 차단 전환은 docs/aws-runbook.md
+resource "aws_cloudfront_response_headers_policy" "front" {
+  name = "${local.name}-front"
+
+  security_headers_config {
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "SAMEORIGIN"
+      override     = false
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = false
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      override                   = false
+    }
+    xss_protection {
+      protection = true
+      mode_block = true
+      override   = false
+    }
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Content-Security-Policy-Report-Only"
+      value    = var.front_csp
+      override = true
+    }
+  }
 }
 
 resource "aws_cloudfront_distribution" "main" {
@@ -82,15 +116,18 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
-  ordered_cache_behavior {
-    path_pattern             = "/api/*"
-    target_origin_id         = "alb"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
-    compress                 = true
+  dynamic "ordered_cache_behavior" {
+    for_each = ["/api/*", "/grafana", "/grafana/*", "/oauth2/*"]
+    content {
+      path_pattern             = ordered_cache_behavior.value
+      target_origin_id         = "alb"
+      viewer_protocol_policy   = "redirect-to-https"
+      allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+      cached_methods           = ["GET", "HEAD"]
+      cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+      origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+      compress                 = true
+    }
   }
 
   # 키가 uuid 라 같은 주소의 내용이 바뀌지 않음 → 캐시 길게 (CachingOptimized 기본 1일 · 최대 1년)
@@ -120,7 +157,7 @@ resource "aws_cloudfront_distribution" "main" {
     allowed_methods            = ["GET", "HEAD"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.front.id
     compress                   = true
 
     function_association {

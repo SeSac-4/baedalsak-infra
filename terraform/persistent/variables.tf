@@ -89,3 +89,8 @@ variable "cost_report_sender" {
   default     = ""
 }
 
+variable "ops_cognito_domain_prefix" {
+  description = "운영자 Cognito Hosted UI 접두사 (OPS_COGNITO_DOMAIN_PREFIX, AWS 전체에서 고유). 비우면 <project>-ops"
+  type        = string
+  default     = ""
+}

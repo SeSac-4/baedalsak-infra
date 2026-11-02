@@ -3,7 +3,7 @@
 #   ECR · Secrets Manager(비밀값·DB 마스터 비밀번호) · Loki 로그 버킷 · RDS 파라미터 그룹
 #   dns.tf      Route 53 존(도메인 구매 시 자동 생성 → 참조) · ACM ①(us-east-1) ②(서울)
 #   frontend.tf S3 프론트 · OAC · CF Function   (CloudFront 배포 자체는 ALB 와 함께 ephemeral/edge.tf)
-#   cognito.tf · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 → 메일 · 켜기/끄기 자동화 · Budgets)
+#   cognito.tf · cognito_ops.tf(운영자 풀) · ses.tf · audit.tf(CloudTrail · 로그 버킷) · ops.tf(알람 토픽 → 메일 · 켜기/끄기 자동화 · Budgets)
 # =============================================================================
 terraform {
   required_version = ">= 1.10"
@@ -368,4 +368,16 @@ output "logs_bucket" {
 
 output "alerts_topic_arn" {
   value = aws_sns_topic.alerts.arn
+}
+
+output "ops_cognito_user_pool_arn" {
+  value = aws_cognito_user_pool.ops.arn
+}
+
+output "ops_cognito_alb_client_id" {
+  value = aws_cognito_user_pool_client.ops["alb"].id
+}
+
+output "ops_cognito_domain_prefix" {
+  value = aws_cognito_user_pool_domain.ops.domain
 }

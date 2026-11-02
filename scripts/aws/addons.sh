@@ -115,8 +115,9 @@ helm upgrade --install aws-for-fluent-bit eks/aws-for-fluent-bit \
   -f "$(dirname "$0")/../../helm/addons/aws-for-fluent-bit.yaml" \
   --wait --timeout 10m
 
-echo "== Prometheus·Grafana (monitoring) — 디스크 없음, 외부 노출 없음"
+echo "== Prometheus·Grafana (monitoring) — 디스크 없음, /grafana 경로로 노출(ALB Cognito 인증)"
 # Grafana admin: Secrets Manager <SECRET_PREFIX>/grafana → Secret grafana-admin (values 에 비밀번호 없음)
+# Grafana OAuth: Secrets Manager <SECRET_PREFIX>/ops-cognito-grafana → Secret grafana-oauth (키 이름 = GF_* 환경 변수)
 kubectl apply -f - <<EOF
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -134,19 +135,78 @@ spec:
   dataFrom:
     - extract:
         key: ${SECRET_PREFIX}/grafana
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-oauth
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: aws-secrets-manager
+  target:
+    name: grafana-oauth
+    creationPolicy: Owner
+  dataFrom:
+    - extract:
+        key: ${SECRET_PREFIX}/ops-cognito-grafana
 EOF
-kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=3m
+kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin externalsecret/grafana-oauth --timeout=3m
 # 비용 추정 대시보드 — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음 (단가는 json 안 PromQL 상수)
 kubectl -n monitoring create configmap dashboard-baedalsak-cost \
   --from-file="$(dirname "$0")/../../helm/addons/dashboards/baedalsak-cost.json" --dry-run=client -o yaml \
   | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
+OPS_HOSTED_UI="$(ssm ops_cognito_hosted_ui)"
 # 메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm template 로 먼저 확인
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   -n monitoring --version 92.14.0 \
   -f "$(dirname "$0")/../../helm/addons/kube-prometheus-stack.yaml" \
   --set-string grafana.env.AWS_REGION="$REGION" \
   --set-string grafana.env.ALERTS_TOPIC_ARN="$(ssm alerts_topic_arn)" \
+  --set-string grafana.env.GF_SERVER_ROOT_URL="$(ssm grafana_root_url)" \
+  --set-string grafana.env.GF_AUTH_GENERIC_OAUTH_AUTH_URL="$OPS_HOSTED_UI/oauth2/authorize" \
+  --set-string grafana.env.GF_AUTH_GENERIC_OAUTH_TOKEN_URL="$OPS_HOSTED_UI/oauth2/token" \
+  --set-string grafana.env.GF_AUTH_GENERIC_OAUTH_API_URL="$OPS_HOSTED_UI/oauth2/userInfo" \
+  --set-string grafana.env.GF_AUTH_SIGNOUT_REDIRECT_URL="$(ssm grafana_signout_url)" \
   --wait --timeout 10m
+
+# ALB → Grafana 파드 IP 등록 (대상 그룹은 terraform/ephemeral/alb.tf, gateway 는 앱 차트)
+kubectl apply -f - <<EOF
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  serviceRef:
+    name: monitoring-grafana
+    port: 80
+  targetGroupARN: "$(ssm grafana_target_group_arn)"
+  targetType: ip
+EOF
+
+# ALB 서브넷 → Grafana 3000. ALB 는 파드와 같은 서브넷이라 이 대역의 파드도 함께 허용됨
+ALB_CIDRS="$(ssm alb_subnet_cidrs)"
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-alb
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: monitoring
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+$(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; done)
+      ports:
+        - { port: 3000, protocol: TCP }
+EOF
 
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets

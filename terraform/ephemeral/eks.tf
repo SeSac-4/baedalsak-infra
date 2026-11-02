@@ -51,7 +51,7 @@ module "eks" {
     }
   }
 
-  # ALB → 파드(ip 타겟): 8080 트래픽, 8081 헬스체크
+  # ALB → 파드(ip 타겟): 8080 트래픽, 8081 헬스체크, Grafana 3000
   node_security_group_additional_rules = {
     alb_to_pods = {
       description              = "internal ALB to pods 8080-8081"
@@ -59,6 +59,14 @@ module "eks" {
       protocol                 = "tcp"
       from_port                = 8080
       to_port                  = 8081
+      source_security_group_id = aws_security_group.alb.id
+    }
+    alb_to_grafana = {
+      description              = "internal ALB to Grafana 3000"
+      type                     = "ingress"
+      protocol                 = "tcp"
+      from_port                = 3000
+      to_port                  = 3000
       source_security_group_id = aws_security_group.alb.id
     }
   }
