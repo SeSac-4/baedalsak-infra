@@ -21,6 +21,7 @@ RDS_HOST="$(ssm rds_host)"
 MQ_HOST="$(ssm mq_host)"
 REDIS_HOST="$(ssm redis_host)"
 TG_ARN="$(ssm target_group_arn)"
+ALB_CIDRS="$(ssm alb_subnet_cidrs)"
 IMAGE_BUCKET="$(ssm image_bucket)"
 IMAGE_BASE_URL="$(ssm image_base_url)"
 # 추적 전송 주소 (helm/addons/tempo.yaml) — 앱이 OTel 로 바뀌기 전에는 쓰이지 않음
@@ -29,6 +30,12 @@ OTLP_TRACES="http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 # 새 파드가 ALB 에서 healthy 가 된 뒤 이전 파드 종료 (롤링 배포 중 502 방지)
 kubectl label namespace "$NS" elbv2.k8s.aws/pod-readiness-gate-inject=enabled --overwrite
+
+# ingress 기본 차단 + 허용 목록 (scripts/aws/networkpolicy.yaml) — 파드보다 먼저 적용
+ALB_IP_BLOCKS="$(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; done)"
+NETPOL="$(<"$ROOT/scripts/aws/networkpolicy.yaml")"
+NETPOL="${NETPOL//'${NS}'/$NS}"
+printf '%s\n' "${NETPOL//'${ALB_IP_BLOCKS}'/$ALB_IP_BLOCKS}" | kubectl apply -f -
 
 # 실패 시 rollback.sh 가 되돌릴 리비전 (서비스별 마지막 정상 배포, 처음 설치면 빈 값)
 PREV="${TMPDIR:-/tmp}/${NAME}-deploy-prev"
