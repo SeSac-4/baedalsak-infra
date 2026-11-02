@@ -22,6 +22,9 @@ loki:
     s3: {}                       # region 은 addons.sh, 자격 증명은 Pod Identity (SDK 기본)
   limits_config:
     retention_period: 336h       # 14일
+    # 조회 기간 제한 — 파드 1개(메모리 512Mi)라 긴 기간 조회 한 번에 멈출 수 있음. Viewer 도 Explore 를 씀
+    max_query_length: 72h        # 한 번에 조회할 수 있는 최대 범위 (금요일 → 월요일). 넘으면 Grafana 에 오류 표시
+    max_query_lookback: 336h     # 보관 기간(14일)보다 이전 구간은 조회하지 않음
   compactor:
     retention_enabled: true      # 오래된 로그 삭제는 compactor 가 함
     delete_request_store: s3
