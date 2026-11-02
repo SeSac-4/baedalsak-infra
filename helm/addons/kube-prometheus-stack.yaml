@@ -91,10 +91,11 @@ grafana:
       auto_login: true
     # 첫 화면(Home) = Spring Boot Observability (아래 dashboards 가 내려받은 파일)
     dashboards: { default_home_dashboard_path: /var/lib/grafana/dashboards/baedalsak/spring-boot-observability.json }
-  # ALB 는 파드와 같은 서브넷에 있어 IP 로 구분이 안 됨 → 전체 허용. 접근 제한은 노드 SG(ALB → 3000)와 Grafana 로그인(익명 끔)
+  # 차트 정책은 monitoring 네임스페이스(Prometheus)만 허용, ALB 서브넷 대역은 addons.sh 의 NetworkPolicy grafana-alb
   networkPolicy:
     enabled: true
-    allowExternal: true
+    allowExternal: false
+    explicitNamespacesSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
   resources:
     requests: { cpu: 50m, memory: 250Mi }
     limits: { memory: 600Mi } # 10-30 실측: 평소 약 225Mi · 대시보드 조회 최고 524Mi (384Mi 일 땐 OOMKilled) — 또 죽으면 올림

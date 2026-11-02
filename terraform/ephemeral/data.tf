@@ -118,8 +118,9 @@ locals {
     target_group_arn = aws_lb_target_group.gateway.arn
     alb_dns          = aws_lb.internal.dns_name
     cloudfront_id    = aws_cloudfront_distribution.main.id
-    # addons.sh 의 Grafana TargetGroupBinding
+    # addons.sh 의 Grafana TargetGroupBinding · NetworkPolicy
     grafana_target_group_arn = aws_lb_target_group.grafana.arn
+    alb_subnet_cidrs         = join(",", module.vpc.private_subnets_cidr_blocks)
   }
 }
 

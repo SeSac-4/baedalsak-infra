@@ -187,6 +187,27 @@ spec:
   targetType: ip
 EOF
 
+# ALB 서브넷 → Grafana 3000. ALB 는 파드와 같은 서브넷이라 이 대역의 파드도 함께 허용됨
+ALB_CIDRS="$(ssm alb_subnet_cidrs)"
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-alb
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: monitoring
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+$(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; done)
+      ports:
+        - { port: 3000, protocol: TCP }
+EOF
+
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets
 kubectl get pods -n monitoring
