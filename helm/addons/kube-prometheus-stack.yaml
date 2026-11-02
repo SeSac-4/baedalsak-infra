@@ -79,6 +79,9 @@ grafana:
     auth.anonymous: { enabled: false }
     # 운영자 풀은 관리자만 계정을 만들고 이메일을 못 바꿔서 이메일로 기존 계정을 연결해도 안전
     auth: { oauth_allow_insecure_email_lookup: true }
+    # Viewer 도 Explore(로그·추적 검색) — 13.2.4 에서 deprecated 표시만, Viewer 에 데이터소스 탐색 역할을 줌. 대시보드 저장 · 데이터소스 · 설정은 Admin 만
+    #   이 설정이 없어지는 버전으로 올리면 role_attribute_path 의 grafana-viewer 를 'Editor' 로 바꿈 (대시보드는 Git 관리 · 매일 초기화)
+    users: { viewers_can_edit: true }
     # id 토큰의 cognito:groups → 역할. ALB 에서 로그인한 Cognito 세션이 있어 자동으로 넘어감
     auth.generic_oauth:
       enabled: true
