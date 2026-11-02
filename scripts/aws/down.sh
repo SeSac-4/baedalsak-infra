@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # 끄기 준비 — terraform destroy 전에 실행
-#   앱(helm uninstall) → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki) 삭제 → 애드온 삭제
+#   앱(helm uninstall) · Grafana TGB 삭제 → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki) 삭제 → 애드온 삭제
 #   LBC 가 TGB 에 finalizer 를 붙이므로 LBC 를 먼저 지우면 TGB 삭제가 멈춤
 # =============================================================================
 set -uo pipefail
@@ -13,6 +13,9 @@ echo "== 앱 삭제"
 for svc in gateway member store order payment delivery; do
   helm uninstall "$svc" -n "$NS" --wait --timeout 5m 2>/dev/null || true
 done
+
+# monitoring 은 이 대기 뒤에 지우므로 Grafana TGB 를 먼저 지움 (LBC 가 살아 있을 때)
+kubectl -n monitoring delete targetgroupbinding grafana --ignore-not-found --wait --timeout=2m 2>/dev/null || true
 
 echo "== TargetGroupBinding 0개 대기"
 for _ in $(seq 1 30); do
