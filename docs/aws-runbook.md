@@ -245,7 +245,7 @@ kubectl -n prod get pods; kubectl -n prod logs deploy/order
 
 - **접속: `https://<DOMAIN_NAME>/grafana`** — CloudFront → internal ALB(운영자 Cognito 인증) → Grafana. 로그인은 Cognito 화면에서 한 번만
 - 꺼진 시간(평일 18:00~09:30 · 주말)에는 CloudFront · ALB 가 없어서 열리지 않습니다
-- 권한: 그룹 `grafana-admin` → Admin, 그 밖 → Viewer. 요청 로그는 Loki `{namespace="monitoring"}`
+- 권한: 그룹 `grafana-admin` → Admin, `grafana-viewer` → Viewer, 그룹이 없으면 로그인 거부. 요청 로그는 Loki `{namespace="monitoring"}`
 
 **계정 만들기:** 레포 Secret `OPS_ADMIN_EMAILS` · `OPS_VIEWER_EMAILS`(쉼표 구분)에 이메일을 넣고 "AWS 상시 리소스 적용" 또는 다음 켜기를 실행합니다. `scripts/aws/ops-users.sh` 가 없는 사용자를 만들고(임시 비밀번호는 Cognito 초대 메일, 7일 유효) 그룹에 넣습니다. 여러 번 실행해도 안전하고, 목록에서 빼도 계정은 지워지지 않으므로 퇴장한 사람은 콘솔(Cognito → 사용자 풀 `<NAME>-ops`)에서 직접 지웁니다.
 

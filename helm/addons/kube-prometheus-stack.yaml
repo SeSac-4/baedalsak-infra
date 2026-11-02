@@ -85,7 +85,7 @@ grafana:
       name: 배달싹 운영자
       scopes: openid email profile
       email_attribute_path: email
-      role_attribute_path: contains("cognito:groups" || `[]`, 'grafana-admin') && 'Admin' || 'Viewer'
+      role_attribute_path: contains("cognito:groups" || `[]`, 'grafana-admin') && 'Admin' || contains("cognito:groups" || `[]`, 'grafana-viewer') && 'Viewer'
       role_attribute_strict: true
       allow_sign_up: true
       auto_login: true
