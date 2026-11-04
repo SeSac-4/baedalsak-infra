@@ -92,8 +92,8 @@ grafana:
       role_attribute_strict: true
       allow_sign_up: true
       auto_login: true
-    # 첫 화면(Home) = Spring Boot Observability (아래 dashboards 가 내려받은 파일)
-    dashboards: { default_home_dashboard_path: /var/lib/grafana/dashboards/baedalsak/spring-boot-observability.json }
+    # 첫 화면(Home) = Spring Boot Observability (helm/addons/dashboards 수정본 — addons.sh 가 ConfigMap 으로 올리고 sidecar 가 /tmp/dashboards 에 둠)
+    dashboards: { default_home_dashboard_path: /tmp/dashboards/spring-boot-observability.json }
   # 차트 정책은 monitoring 네임스페이스(Prometheus)만 허용, ALB 서브넷 대역은 addons.sh 의 NetworkPolicy grafana-alb
   networkPolicy:
     enabled: true
@@ -117,11 +117,9 @@ grafana:
   dashboards:
     baedalsak:
       jvm-micrometer: { gnetId: 4701, revision: 10, datasource: Prometheus }
-      spring-boot-observability:
-        gnetId: 17175
-        revision: 2
-        datasource: [{ name: DS_PROMETHEUS, value: Prometheus }, { name: DS_LOKI, value: Loki }]
-      spring-boot-3x-statistics: { gnetId: 19004, revision: 1, datasource: Prometheus }
+      # 17175(Spring Boot Observability) 는 로그 패널 라벨이 달라 수정본을 helm/addons/dashboards 에 둠
+      # 19004 는 datasource 가 객체({uid: ${DS_PROMETHEUS}})라 문자열 치환이 안 됨 → 목록 형식으로 uid 를 넣음 (문자열이면 패널 전부 N/A)
+      spring-boot-3x-statistics: { gnetId: 19004, revision: 1, datasource: [{ name: DS_PROMETHEUS, value: prometheus }] }
   # 비용 추정 알림 (대시보드 helm/addons/dashboards/baedalsak-cost.json 과 같은 식) → SNS 알림 주제 → 메일
   #   Budgets 메일(실제 청구, 몇 시간 늦음)보다 빠른 추정 알림. SNS 메일 제목은 ASCII 만 · 이 블록엔 $ 금지(provisioning 이 환경 변수로 치환)
   alerting:

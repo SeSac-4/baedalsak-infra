@@ -154,10 +154,12 @@ spec:
         key: ${SECRET_PREFIX}/ops-cognito-grafana
 EOF
 kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin externalsecret/grafana-oauth --timeout=3m
-# 비용 추정 대시보드 — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음 (단가는 json 안 PromQL 상수)
-kubectl -n monitoring create configmap dashboard-baedalsak-cost \
-  --from-file="$(dirname "$0")/../../helm/addons/dashboards/baedalsak-cost.json" --dry-run=client -o yaml \
-  | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
+# 직접 관리하는 대시보드 (비용 추정 · Spring Boot Observability 수정본) — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음
+for d in baedalsak-cost spring-boot-observability; do
+  kubectl -n monitoring create configmap "dashboard-$d" \
+    --from-file="$(dirname "$0")/../../helm/addons/dashboards/$d.json" --dry-run=client -o yaml \
+    | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
+done
 OPS_HOSTED_UI="$(ssm ops_cognito_hosted_ui)"
 # 메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm template 로 먼저 확인
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
