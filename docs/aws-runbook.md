@@ -296,7 +296,7 @@ content_security_policy {
 | member 권한 | Pod Identity `prod/member` → 역할 `<NAME>-member-cognito` — prod 풀 Admin 5개(Create·SetPassword·AddToGroup·Delete·InitiateAuth). RevokeToken 은 IAM 불필요 |
 | 매일 정리 | 켜기(up) DB 초기화 직후 `scripts/aws/cognito-cleanup.sh` — prod 풀 **username 1000 이상 삭제** (DB 가 매일 새로 떠 member id 가 1000 부터 재사용) |
 | seed 사용자 | username 1~999 (고객 1·2 · 사장님 101·102 · 라이더 201·202) — prod 풀에 1회 생성 후 유지, 비밀번호 `<SECRET_PREFIX>/seed` |
-| 로컬 풀 | IAM 사용자 `sesac-d1`(member) · `sesac-d5`(인프라) 에 Admin API 권한 — 풀 ID·클라이언트 ID 는 `terraform -chdir=terraform/persistent output` 또는 콘솔 |
+| 로컬 풀 | IAM 사용자 `sesac-d1`~`sesac-d5`(팀원 전원) 에 Admin API 권한 — 풀 ID·클라이언트 ID 는 `terraform -chdir=terraform/persistent output` 또는 콘솔 |
 | `JWT_SECRET` | gateway·member 모두 제거 (helm `secretKeys` 주석 · persistent `jwt_services = []`) — 토큰 검증은 server #23(Cognito JWKS) |
 
 ## 4. 오늘 버전에서 설계와 다른 점 (임시)
