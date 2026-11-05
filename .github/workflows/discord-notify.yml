@@ -1,0 +1,49 @@
+# =============================================================================
+# 워크플로 실패 → Discord #alert-incident
+#   아래 워크플로가 실패·시간 초과로 끝나면 이름 · 브랜치 · 커밋 · 실행자 · 실행 링크를 보냄
+#   AWS 켜기·끄기는 Lambda ② report 가 로그와 함께 이미 보내므로 제외 (중복 방지)
+#   workflow_run 은 기본 브랜치(develop)의 이 파일로 동작 · workflows 는 각 파일의 name: 과 정확히 같아야 함
+#   수동 실행(workflow_dispatch) = 연결 테스트 메시지
+# 레포 Secrets: DISCORD_WEBHOOK_INCIDENT (Discord #alert-incident 웹후크 URL)
+# =============================================================================
+name: 워크플로 실패 알림 (Discord)
+
+on:
+  workflow_run:
+    workflows:
+      - 앱 이미지 빌드 (서버 → ECR)
+      - 프론트 배포 (클라이언트 → S3)
+      - AWS 상시 리소스 적용 (ECR·Secrets)
+      - AWS 변경 미리보기 (plan)
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Discord 로 보내기
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_INCIDENT }}
+          # 커밋 메시지 등 사용자 입력은 env 로만 넘김 (스크립트 주입 방지)
+          NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+          ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "::warning::DISCORD_WEBHOOK_INCIDENT Secret 이 없어 건너뜀"; exit 0; fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            text="**[baedalsak-infra] 워크플로 실패 알림 연결 테스트**"$'\n'"실패하면 이 채널로 옵니다."
+          else
+            text="**[baedalsak-infra] ❌ ${NAME} ${CONCLUSION}**"$'\n'"브랜치 \`${BRANCH}\` · 커밋 \`${SHA:0:7}\` ${TITLE:0:100}"$'\n'"실행: ${ACTOR} (${EVENT})"$'\n'"${URL}"
+          fi
+          jq -n --arg c "${text:0:1900}" '{content:$c, allowed_mentions:{parse:[]}}' \
+            | curl -fsS -H "Content-Type: application/json" -H "User-Agent: baedalsak-actions" -d @- "$WEBHOOK"
