@@ -141,14 +141,15 @@ terraform -chdir=terraform/persistent plan
 | Secrets Manager | 값 | 없으면 |
 |---|---|---|
 | `<SECRET_PREFIX>/github-dispatch` | GitHub fine-grained PAT — 레포 baedalsak-infra, **Actions: Read and write** | 예약 켜기·끄기가 실행 안 됨 (Step Functions 실패 → 알림) |
-| `<SECRET_PREFIX>/discord-webhook` | Discord 웹훅 URL — 채널 설정 → 연동 → 웹후크 → URL 복사 (알람·켜기/끄기 실패·예산·일일 비용 한 채널) | Discord 알림이 안 감 (Lambda notify·cost_report 오류) |
+| `<SECRET_PREFIX>/discord-webhook` | `{"incident":"<URL>","cost":"<URL>"}` — Discord 채널 설정 → 연동 → 웹후크 → URL 복사. incident(`#alert-incident`): 알람·켜기/끄기 실패 / cost(`#alert-cost`): Budgets·Grafana 비용 추정·일일 비용. URL 하나만 넣으면 전부 그 채널 | Discord 알림이 안 감 (Lambda notify·cost_report 오류) |
 | `<SECRET_PREFIX>/seed` | `{"SEED_PASSWORD":"..."}` — prod 풀 seed 사용자 비밀번호 (seed 스크립트만 읽음, 파드에 안 들어감) | prod 풀 seed 실행 불가 |
 
 ```bash
 aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch --secret-string '<PAT>'
-# Discord 웹훅 URL — 화면·기록에 안 남게 입력
-read -rsp 'DISCORD_WEBHOOK_URL: ' DW; echo
-aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/discord-webhook --secret-string "$DW" --query VersionId --output text; unset DW
+# Discord 웹훅 URL 2개 — 화면·기록에 안 남게 입력
+read -rsp 'incident URL: ' DI; echo; read -rsp 'cost URL: ' DC; echo
+aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/discord-webhook \
+  --secret-string "$(jq -cn --arg i "$DI" --arg c "$DC" '{incident:$i,cost:$c}')" --query VersionId --output text; unset DI DC
 # seed 비밀번호 — 화면·기록에 안 남게 입력
 read -rsp 'SEED_PASSWORD: ' SP; echo
 aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/seed \

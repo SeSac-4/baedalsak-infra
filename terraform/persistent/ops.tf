@@ -50,6 +50,7 @@ resource "aws_sns_topic_subscription" "alerts_email" {
 # 기본 정책(같은 계정 — CloudWatch 알람·Lambda·Grafana)을 그대로 두고 Budgets 경고만 추가
 data "aws_iam_policy_document" "alerts_topic" {
   statement {
+    sid       = "AccountDefault" # SNS 는 statement 가 여럿이면 sid 필수
     actions   = ["sns:Publish", "sns:Subscribe", "sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:AddPermission", "sns:RemovePermission", "sns:DeleteTopic", "sns:ListSubscriptionsByTopic", "sns:Receive"]
     resources = [aws_sns_topic.alerts.arn]
     principals {
@@ -63,6 +64,7 @@ data "aws_iam_policy_document" "alerts_topic" {
     }
   }
   statement {
+    sid       = "BudgetsPublish"
     actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts.arn]
     principals {

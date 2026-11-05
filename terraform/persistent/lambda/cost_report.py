@@ -60,6 +60,7 @@ def discord(day, subject, prev_rows, last_rows):
 
 def post_discord(text):
     url = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["DISCORD_WEBHOOK_SECRET"])["SecretString"].strip()
+    url = json.loads(url)["cost"] if url.startswith("{") else url  # {"incident","cost"} 중 cost 채널 (notify.py 와 같은 형식)
     req = urllib.request.Request(url, data=json.dumps({"content": text}).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "User-Agent": "baedalsak-cost-report"})
     urllib.request.urlopen(req, timeout=10).close()

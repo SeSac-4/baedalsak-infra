@@ -28,4 +28,10 @@ parts = notify.chunks("\n".join(["x" * 300] * 20))
 assert len(parts) > 1 and all(len(p) <= 2000 for p in parts) and sum(p.count("x") for p in parts) == 6000
 assert notify._text('{"AlarmName": "a", "NewStateValue": "ALARM", "NewStateReason": "r"}') == "[ALARM] a\nr"
 assert notify.chunks("") == []
+ARN = "arn:aws:sns:ap-northeast-2:1:baedalsak-prod-"
+assert notify.channel(ARN + "alerts", "[baedalsak-prod] AWS up FAILED") == "incident"
+assert notify.channel(ARN + "alerts", "ALARM: \"baedalsak-prod-rds-cpu\" in Asia Pacific (Seoul)") == "incident"
+assert notify.channel(ARN + "alerts", "[baedalsak-prod] ALERT - 1 alert(s)") == "cost"  # Grafana
+assert notify.channel(ARN + "alerts", "AWS Budgets: baedalsak-prod-daily has exceeded your alert threshold") == "cost"
+assert notify.channel(ARN + "budget", "") == "cost"
 print("discord ok")
