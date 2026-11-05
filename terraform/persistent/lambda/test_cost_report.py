@@ -1,4 +1,4 @@
-# 로컬 자체 검사: python3 test_cost_report.py (Lambda 에는 포함되지 않음 — archive 는 파일 1개씩)
+# 로컬 자체 검사: python3 test_cost_report.py (cost_report · notify, Lambda 에는 포함되지 않음 — archive 는 파일 1개씩)
 import sys
 import types
 from datetime import date
@@ -15,3 +15,17 @@ assert body.index("2026-10-27") < body.index("2026-10-28"), "이틀 전 표가 �
 assert body.index("Amazon RDS") < body.index("합계") < body.index("2026-10-28"), "합계 줄은 각 표 맨 아래"
 assert body.count("합계") == 2
 print("ok")
+
+# Discord 텍스트 (11-05)
+text = cost_report.discord(date(2026, 10, 28), subject, prev, last)
+assert text.startswith("**[배달싹] 일일 비용") and len(text) <= 2000
+assert text.count("```") == 4 and "Tax" not in text and "$7.20" in text
+long_rows = [(f"Service {i:02d} with a long long name", 1.0) for i in range(60)]
+assert len(cost_report.discord(date(2026, 10, 28), subject, long_rows, long_rows)) <= 2000
+
+import notify  # noqa: E402
+parts = notify.chunks("\n".join(["x" * 300] * 20))
+assert len(parts) > 1 and all(len(p) <= 2000 for p in parts) and sum(p.count("x") for p in parts) == 6000
+assert notify._text('{"AlarmName": "a", "NewStateValue": "ALARM", "NewStateReason": "r"}') == "[ALARM] a\nr"
+assert notify.chunks("") == []
+print("discord ok")

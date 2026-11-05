@@ -127,13 +127,13 @@ terraform -chdir=terraform/persistent plan
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
-- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 **실패일 때만** `ALERT_EMAILS` 로 메일을 보냅니다 (성공은 Step Functions 실행 기록·GitHub Actions 에서 확인).
+- 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 **실패일 때만** Discord 로 알립니다 (SNS alerts → Lambda ⑤ notify, `ALERT_EMAILS` 가 있으면 메일도) (성공은 Step Functions 실행 기록·GitHub Actions 에서 확인).
   - 제목 `[baedalsak-prod] AWS up|down OK|FAILED`
   - 본문: AWS 상태 확인(켜기: EKS·노드그룹·RDS·`https://<DOMAIN>/api/v1/stores` 응답 / 끄기: 남은 EKS·RDS·MQ·ElastiCache·ALB·NAT·EC2·CloudFront) + GitHub 실행 링크 · 막힌 job·step · 오류 줄 · 로그 마지막 40줄
   - 워크플로가 성공해도 AWS 상태 확인에서 걸리면 FAILED (예: 끄기 후 NAT 가 남음)
-- 일일 비용이 `BUDGET_WARN_USD`(10) 를 넘으면 경고 메일, `BUDGET_DAILY_USD`(20) 를 넘으면 메일 (자동 끄기는 `budget_auto_down` 기본 false 로 꺼 둠). Budgets 는 하루 몇 번만 갱신돼 실시간이 아님
-- **일일 비용 메일**: 매일 09:00 KST Lambda ④ `cost_report` 가 이틀 전·전날 하루 비용(Cost Explorer, 크레딧·환불 차감 전)을 서비스별 표(맨 아래 합계)로 SES 로 보냅니다. Cost Explorer 가 하루 가까이 늦게 집계돼 전날 값은 적게 나오므로 이틀 전 표가 기준입니다. 스택 태그별 표는 멤버 계정이라 비용 할당 태그를 켤 수 없어 뺐습니다.
-  - 발신 `cost-report@<DOMAIN_NAME>`(레포 변수 `COST_REPORT_SENDER` 로 변경 가능), 수신 Secret `ALERT_EMAILS` — SES 샌드박스라 수신 주소마다 "Amazon Web Services – Email Address Verification Request" 메일 링크 1회 클릭
+- 일일 비용이 `BUDGET_WARN_USD`(10) 를 넘으면 경고, `BUDGET_DAILY_USD`(20) 를 넘으면 알림 — Discord (+ `ALERT_EMAILS` 메일) (자동 끄기는 `budget_auto_down` 기본 false 로 꺼 둠). Budgets 는 하루 몇 번만 갱신돼 실시간이 아님
+- **일일 비용 알림**: 매일 09:00 KST Lambda ④ `cost_report` 가 이틀 전·전날 하루 비용(Cost Explorer, 크레딧·환불 차감 전)을 서비스별 표(맨 아래 합계)로 Discord 에 보냅니다 (`ALERT_EMAILS` 가 있으면 SES 메일도). Cost Explorer 가 하루 가까이 늦게 집계돼 전날 값은 적게 나오므로 이틀 전 표가 기준입니다. 스택 태그별 표는 멤버 계정이라 비용 할당 태그를 켤 수 없어 뺐습니다.
+  - 메일(선택): 발신 `cost-report@<DOMAIN_NAME>`(레포 변수 `COST_REPORT_SENDER` 로 변경 가능), 수신 Secret `ALERT_EMAILS` — SES 샌드박스라 수신 주소마다 "Amazon Web Services – Email Address Verification Request" 메일 링크 1회 클릭
   - 처음 한 번 콘솔: Billing and Cost Management → **Cost Explorer 시작** · **비용 할당 태그** → `Stack` 활성화 (활성화 후 하루 지나야 ② 표가 채워짐, 그 전엔 "집계 전")
 
 ### 예약·알림 준비 (한 번, persistent apply 후 콘솔에서 값 넣기)
@@ -141,10 +141,14 @@ terraform -chdir=terraform/persistent plan
 | Secrets Manager | 값 | 없으면 |
 |---|---|---|
 | `<SECRET_PREFIX>/github-dispatch` | GitHub fine-grained PAT — 레포 baedalsak-infra, **Actions: Read and write** | 예약 켜기·끄기가 실행 안 됨 (Step Functions 실패 → 알림) |
+| `<SECRET_PREFIX>/discord-webhook` | Discord 웹훅 URL — 채널 설정 → 연동 → 웹후크 → URL 복사 (알람·켜기/끄기 실패·예산·일일 비용 한 채널) | Discord 알림이 안 감 (Lambda notify·cost_report 오류) |
 | `<SECRET_PREFIX>/seed` | `{"SEED_PASSWORD":"..."}` — prod 풀 seed 사용자 비밀번호 (seed 스크립트만 읽음, 파드에 안 들어감) | prod 풀 seed 실행 불가 |
 
 ```bash
 aws secretsmanager put-secret-value --secret-id baedalsak/prod/github-dispatch --secret-string '<PAT>'
+# Discord 웹훅 URL — 화면·기록에 안 남게 입력
+read -rsp 'DISCORD_WEBHOOK_URL: ' DW; echo
+aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/discord-webhook --secret-string "$DW" --query VersionId --output text; unset DW
 # seed 비밀번호 — 화면·기록에 안 남게 입력
 read -rsp 'SEED_PASSWORD: ' SP; echo
 aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsak/prod/seed \

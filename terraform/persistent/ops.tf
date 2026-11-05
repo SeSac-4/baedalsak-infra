@@ -3,12 +3,13 @@
 #   켜기·끄기 : EventBridge Scheduler(평일 09:30·18:00 KST) → Step Functions → Lambda ① → GitHub Actions
 #              워크플로가 작업 토큰으로 결과 보고 → Lambda ② 가 결과 확인 → SNS alerts → 메일
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
-#   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → 메일 (ALERT_EMAILS, 구독 확인 메일 1회 클릭)
-#   예산      : Budgets(일일) $10 넘으면 메일(경고) · $20 넘으면 메일 (+ budget_auto_down=true 면 SNS budget → Lambda ③ → 끄기)
-#   비용 메일 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(이틀 전·전날, 크레딧·환불 제외) → SES 메일(서비스별)
+#   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → Lambda ⑤ notify → Discord (+ ALERT_EMAILS 메일 구독)
+#   예산      : Budgets(일일) $10 넘으면 SNS alerts(경고) · $20 넘으면 SNS budget → Discord (+ 메일, budget_auto_down=true 면 Lambda ③ → 끄기)
+#   비용 알림 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(이틀 전·전날, 크레딧·환불 제외) → Discord (+ ALERT_EMAILS 있으면 SES 메일)
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
 #     <SECRET_PREFIX>/seed             {"SEED_PASSWORD": "..."} prod 풀 seed 사용자 비밀번호
+#     <SECRET_PREFIX>/discord-webhook  Discord 웹훅 URL (알람·켜기/끄기 결과·예산·일일 비용 → 한 채널)
 # =============================================================================
 
 resource "aws_secretsmanager_secret" "github_dispatch" {
@@ -19,6 +20,11 @@ resource "aws_secretsmanager_secret" "github_dispatch" {
 # prod 풀 seed 사용자 비밀번호 {"SEED_PASSWORD": "..."} — 값은 CLI·콘솔에서 넣음, seed 스크립트만 읽음
 resource "aws_secretsmanager_secret" "seed" {
   name                    = "${local.secret_prefix}/seed"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret" "discord_webhook" {
+  name                    = "${local.secret_prefix}/discord-webhook"
   recovery_window_in_days = 0
 }
 
@@ -39,6 +45,41 @@ resource "aws_sns_topic_subscription" "alerts_email" {
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
   endpoint  = each.value
+}
+
+# 기본 정책(같은 계정 — CloudWatch 알람·Lambda·Grafana)을 그대로 두고 Budgets 경고만 추가
+data "aws_iam_policy_document" "alerts_topic" {
+  statement {
+    actions   = ["sns:Publish", "sns:Subscribe", "sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:AddPermission", "sns:RemovePermission", "sns:DeleteTopic", "sns:ListSubscriptionsByTopic", "sns:Receive"]
+    resources = [aws_sns_topic.alerts.arn]
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceOwner"
+      values   = [local.account]
+    }
+  }
+  statement {
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["budgets.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alerts" {
+  arn    = aws_sns_topic.alerts.arn
+  policy = data.aws_iam_policy_document.alerts_topic.json
 }
 
 resource "aws_sns_topic" "budget" {
@@ -66,11 +107,12 @@ resource "aws_sns_topic_policy" "budget" {
   policy = data.aws_iam_policy_document.budget_topic.json
 }
 
-# ---------- Lambda ① dispatch · ② report · ③ budget_guard · ④ cost_report ----------
+# ---------- Lambda ① dispatch · ② report · ③ budget_guard · ④ cost_report · ⑤ notify ----------
 locals {
   state_machine_arn = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power"
   github_env        = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
   read_github_token = { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.github_dispatch.arn }
+  read_discord      = { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.discord_webhook.arn }
   cost_sender       = coalesce(var.cost_report_sender, "cost-report@${var.domain_name}")
   lambdas = {
     dispatch = {
@@ -100,13 +142,19 @@ locals {
       statements = [{ Effect = "Allow", Action = "states:StartExecution", Resource = local.state_machine_arn }]
     }
     cost_report = {
-      env     = { NAME = local.name, SENDER = local.cost_sender, RECIPIENTS = jsonencode(var.alert_emails) }
+      env     = { NAME = local.name, SENDER = local.cost_sender, RECIPIENTS = jsonencode(var.alert_emails), DISCORD_WEBHOOK_SECRET = aws_secretsmanager_secret.discord_webhook.arn }
       timeout = 60
       statements = [
+        local.read_discord,
         { Effect = "Allow", Action = "ce:GetCostAndUsage", Resource = "*" }, # Cost Explorer 는 리소스 단위 권한 없음
         # 샌드박스에서는 받는 주소 identity 에도 권한 필요 (없으면 AccessDenied — 10-28·29 미발송)
         { Effect = "Allow", Action = "ses:SendEmail", Resource = concat([aws_sesv2_email_identity.domain.arn], [for r in aws_sesv2_email_identity.recipient : r.arn]) },
       ]
+    }
+    notify = {
+      env        = { DISCORD_WEBHOOK_SECRET = aws_secretsmanager_secret.discord_webhook.arn }
+      timeout    = 30
+      statements = [local.read_discord]
     }
   }
 }
@@ -163,6 +211,23 @@ resource "aws_cloudwatch_log_group" "lambda" {
   for_each          = local.lambdas
   name              = "/aws/lambda/${aws_lambda_function.this[each.key].function_name}"
   retention_in_days = 14
+}
+
+# SNS alerts·budget → Discord
+resource "aws_sns_topic_subscription" "notify" {
+  for_each  = { alerts = aws_sns_topic.alerts.arn, budget = aws_sns_topic.budget.arn }
+  topic_arn = each.value
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.this["notify"].arn
+}
+
+resource "aws_lambda_permission" "notify" {
+  for_each      = { alerts = aws_sns_topic.alerts.arn, budget = aws_sns_topic.budget.arn }
+  statement_id  = "sns-${each.key}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this["notify"].function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = each.value
 }
 
 # 예산 초과 자동 끄기 — 부하 테스트 기간이라 꺼 둠 (10-29). 다시 켜려면 budget_auto_down = true
@@ -306,20 +371,19 @@ resource "aws_budgets_budget" "daily" {
   limit_amount = tostring(var.budget_daily_usd)
   limit_unit   = "USD"
   time_unit    = "DAILY"
+  depends_on   = [aws_sns_topic_policy.alerts, aws_sns_topic_policy.budget] # Budgets 가 SNS 발행 권한을 확인
 
-  # 경고: 메일만 (수신자가 있을 때)
-  dynamic "notification" {
-    for_each = length(var.alert_emails) > 0 ? [1] : []
-    content {
-      comparison_operator        = "GREATER_THAN"
-      threshold                  = var.budget_warn_usd
-      threshold_type             = "ABSOLUTE_VALUE"
-      notification_type          = "ACTUAL"
-      subscriber_email_addresses = var.alert_emails
-    }
+  # 경고: SNS alerts → Discord (+ 메일). budget 주제에 넣으면 budget_auto_down 일 때 경고에서도 꺼지므로 alerts 로
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = var.budget_warn_usd
+    threshold_type             = "ABSOLUTE_VALUE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = var.alert_emails
+    subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
   }
 
-  # 넘으면 메일 (+ budget_auto_down 이면 끄기)
+  # 넘으면 SNS budget → Discord (+ 메일, budget_auto_down 이면 끄기)
   notification {
     comparison_operator        = "GREATER_THAN"
     threshold                  = 100
