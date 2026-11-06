@@ -62,5 +62,6 @@ for f in appproject applicationset; do
 done
 
 # Argo CD 가 sync → 6개가 이 태그로 뜰 때까지 대기 (ExternalSecret 도 Healthy 판정에 포함)
-"$ROOT/scripts/aws/argocd-wait.sh" "$TAG"
+#   DEPLOY_REV(선택): 이 infra 커밋까지 sync 됐는지도 확인 — values·차트만 바뀌어 태그가 같을 때 (gitops-check 워크플로)
+"$ROOT/scripts/aws/argocd-wait.sh" "$TAG" "${DEPLOY_REV:-}"
 kubectl -n "$NS" get pods -o wide

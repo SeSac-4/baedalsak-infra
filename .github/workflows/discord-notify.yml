@@ -15,6 +15,7 @@ on:
       - 프론트 배포 (클라이언트 → S3)
       - AWS 상시 리소스 적용 (ECR·Secrets)
       - AWS 변경 미리보기 (plan)
+      - 인프라 변경 배포 확인 (Argo CD)
     types: [completed]
   workflow_dispatch:
 

@@ -1,0 +1,38 @@
+# =============================================================================
+# 인프라 변경 배포 확인 (Argo CD) — infra develop 의 helm 변경이 클러스터에서 정상인지 smoke test
+#   Argo CD 는 develop 을 보고 있어 values·차트 변경이 머지 즉시(약 3분 안) 반영됨 → 이전처럼 다음 배포 때가 아니라 지금 검사
+#   켜져 있으면: deploy.sh(NetworkPolicy · AppProject · ApplicationSet 재적용 → develop 최신 커밋까지 sync · Healthy 대기) → smoke test
+#   꺼져 있으면: 건너뜀 (다음 AWS 켜기가 같은 과정 + smoke test)
+#   실패해도 되돌리지 않음 (사람이 바꾼 values 를 자동 revert 하지 않음) → 워크플로 실패 → Discord #alert-incident (discord-notify.yml)
+#   이미지 태그 커밋(aws-image.yaml)은 github-actions[bot] 이 GITHUB_TOKEN 으로 push 해 이 워크플로를 띄우지 않음 (images.yml 이 이미 smoke test)
+#     사람이 aws-image.yaml 을 고치거나 revert 하면 여기서 확인
+# =============================================================================
+name: 인프라 변경 배포 확인 (Argo CD)
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - helm/charts/**
+      - helm/values/**
+      - "!helm/values/local.yaml"
+      - helm/argocd/applicationset.yaml
+      - helm/argocd/appproject.yaml
+      - scripts/aws/networkpolicy.yaml
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# 켜기·끄기·이미지 배포와 겹치지 않게 같은 group
+concurrency:
+  group: aws-stack
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/aws-stack.yml
+    secrets: inherit
+    with:
+      action: verify
