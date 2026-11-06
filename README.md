@@ -30,6 +30,7 @@ AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다
 | AWS 켜기 (평일 09:30) | 예약 · 수동 | 상시 리소스 apply → VPC·EKS·RDS(빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온(+Argo CD) → DB·MQ 초기화 → 앱 배포(Argo CD) → smoke test |
 | AWS 끄기 (평일 18:00) | 예약 · 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
 | 앱 이미지 빌드 (서버 → ECR) | 서버 develop 머지 시 자동 · 수동 | baedalsak-server 6개 이미지 빌드 → ECR → 태그를 `helm/values/aws-image.yaml` 에 커밋 → 켜져 있으면 Argo CD 가 배포 |
+| 인프라 변경 배포 확인 (Argo CD) | infra develop 에 helm 변경 머지 시 자동 · 수동 | 켜져 있으면 ApplicationSet 재적용 → develop 최신 커밋까지 sync 대기 → smoke test (실패 시 Discord, 자동 되돌리기 없음) |
 | 프론트 배포 (클라이언트 → S3) | 클라이언트 develop push 시 자동 · 수동 | `npm run build`(토스 클라이언트 키는 Parameter Store) → S3 → CloudFront 무효화 |
 | AWS 상시 리소스 적용 | 수동 | persistent 스택 apply (ECR · Secrets Manager · Parameter Store · Cognito · SES · S3 · 운영 자동화) |
 | AWS 변경 미리보기 (plan) | 수동 | terraform plan |

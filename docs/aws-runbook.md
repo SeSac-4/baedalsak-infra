@@ -27,7 +27,8 @@ helm/argocd/     Argo CD values · 앱 6개 ApplicationSet (아래 "앱 배포 �
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
-├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 켜져 있으면 배포
+├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 태그 커밋 → 켜져 있으면 Argo CD 배포 확인
+├── gitops-check.yml    인프라 변경 배포 확인 (helm 변경 머지 → 켜져 있으면 sync 대기 + smoke test)
 └── frontend.yml        프론트 배포 (클라이언트 레포 CLIENT_REPO → npm build → S3 → CloudFront 무효화)
 ```
 
@@ -174,10 +175,40 @@ aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsa
 | 지표 | Grafana 배달싹 폴더 "ArgoCD" 대시보드, 또는 Argo CD 앱 화면의 "Grafana 서비스 대시보드" 링크 |
 
 - `helm list -n prod` · `helm rollback` 은 더 이상 쓰지 않습니다 (Argo CD 는 Helm 을 렌더링에만 씀 → helm release 없음).
+- **develop 에 bot 커밋이 들어옵니다** — 서버 이미지 빌드가 성공할 때마다 github-actions[bot] 이 `helm/values/aws-image.yaml` 태그를 커밋합니다 (서버 머지 수만큼, 많으면 하루 10번 이상). develop 에 직접 push 하기 전에 `git pull --rebase origin develop` 하세요 (안 하면 non-fast-forward 로 거절). `aws-image.yaml` 은 손으로 고치지 않습니다.
 - **selfHeal 은 꺼 둠** — 부하 테스트 중 `kubectl scale`·`edit` 이 되돌려지지 않습니다. 대신 Git 과 다르면 `OutOfSync` 로 보이고, 다음 Git 커밋이 sync 될 때 Git 값으로 돌아갑니다. 부하 테스트가 끝나면 `helm/argocd/applicationset.yaml` 에서 켭니다.
 - NetworkPolicy 는 Argo CD 관리 밖입니다 (`deploy.sh` 가 ApplicationSet 보다 먼저 적용).
+- `argocd` 네임스페이스도 ingress 기본 차단입니다 (`addons.sh`) — 다른 파드는 Argo CD server 에 직접 못 들어오고, Prometheus(monitoring)만 메트릭을 수집합니다. UI 는 port-forward 라 영향 없습니다.
 - 앱 6개는 전용 프로젝트 `baedalsak`(`helm/argocd/appproject.yaml`)로만 배포됩니다 — 이 레포 · `prod` · 차트가 만드는 kind 만 허용. 차트에 새 kind 를 추가하면 프로젝트 허용 목록에도 추가하세요 (빠지면 sync 가 "not permitted in project" 로 실패).
+- **18:00 · 09:30 전후에는 helm 변경 push 를 피하세요** — 켜기·끄기·이미지 배포·변경 확인이 같은 동시 실행 그룹(`aws-stack`)이라, 대기 중인 끄기·켜기가 새 실행에 밀려 취소될 수 있습니다. 취소되면 Actions 에서 AWS 끄기(켜기)를 수동 실행하세요.
 - sync 가 실패하면 Argo CD 가 약 5분 동안 5번 다시 시도합니다 (켜기 직후 ESO·webhook 준비 전 실패 대비).
+- `helm/` 아래 values·차트(또는 `applicationset.yaml`·`appproject.yaml`·`networkpolicy.yaml`)를 바꿔 develop 에 머지하면 Argo CD 가 바로 반영하고, **인프라 변경 배포 확인 (Argo CD)** 워크플로가 켜져 있을 때 smoke test 를 돌립니다. 실패해도 자동으로 되돌리지 않고 Discord 로 알리므로, 직접 고치거나 그 커밋을 revert 하세요.
+
+### infra 변경 배포 확인이 실패했을 때
+
+Discord #alert-incident 에 **인프라 변경 배포 확인 (Argo CD) failure** 가 오면, 그 변경은 **이미 AWS 에 반영된 상태**입니다 (Argo CD 가 머지 즉시 반영, 워크플로는 반영 뒤 검사). 자동으로 되돌리지 않으므로 사람이 판단합니다.
+
+1. 알림의 실행 링크 → `deploy apps` · `smoke test` · `debug on failure` 로그에서 원인 확인 (`kubectl -n argocd get applications`, `./scripts/aws/argocd-ui.sh`)
+2. 원인이 **그 변경**이면 되돌림 → Argo CD 가 이전 값으로 맞추고 같은 워크플로가 다시 smoke test
+   - **develop 에 직접 push 한 커밋**: `git pull --rebase origin develop` → `git revert <커밋>` → `git push origin develop` (여러 커밋이면 `git revert <첫 커밋>^..<마지막 커밋>`)
+   - **PR 로 머지한 커밋**: 머지된 PR 화면의 **Revert** 버튼 → 생긴 PR 머지 (또는 `git revert -m 1 <머지 커밋>`)
+   - 원인이 분명하고 바로 고칠 수 있으면 고친 커밋을 올려도 됨 (fix forward)
+   - 같은 브랜치를 다시 머지해도 되돌린 내용은 다시 들어가지 않음 → revert 커밋을 다시 revert 하거나 새 커밋으로 올림
+3. 원인이 **변경과 무관**하면 (AWS 일시 장애 · 서버 이미지 등) — 되돌리지 않고 원인 쪽을 처리한 뒤 이 워크플로를 수동 실행 (Run workflow) 해 다시 확인
+4. 클러스터가 꺼져 있을 때 머지된 변경은 다음 AWS 켜기의 smoke test 에서 드러남 (켜기 실패 알림)
+
+### 부하 테스트 때 (Argo CD 전환 후)
+
+설정은 `kubectl` 이 아니라 **Git 커밋 하나**로 바꾸고, 끝나면 그 커밋을 revert 합니다 (커밋 SHA = 테스트 조건 기록).
+
+1. **배포 동결** — Actions 에서 **앱 이미지 빌드** 워크플로를 Disable (또는 서버 팀에 머지 보류 공유). 테스트 중 이미지가 바뀌면 결과가 섞이고, 재배포로 이전·새 파드가 겹치면 DB 연결 수가 RDS 한도(약 80)를 넘을 수 있음 (아래 3)
+   - Argo CD sync window(배포 금지 시간)는 쓰지 않음 — 태그 커밋은 되는데 sync 만 막혀 대기 시간 초과 → 이미지 태그 자동 되돌리기가 돎
+2. **테스트 설정 커밋** (develop) — 커밋 후 **인프라 변경 배포 확인 (Argo CD)** 워크플로가 smoke test 로 확인
+   - `helm/values/aws.yaml` `resources.requests.cpu` 100m → 250m (HPA 는 requests 대비 CPU % 로 판단 — 100m 이면 너무 일찍 늘어남)
+   - `helm/values/aws-services/order.yaml` · `payment.yaml` 에 `autoscaling: { enabled: true, minReplicas: 1, maxReplicas: 3 }` (+ 필요하면 `targetCPUUtilizationPercentage`)
+3. **DB 연결 수 확인** — 연결 풀 5 는 서비스당 파드 1개 기준. order·payment 가 3개까지 늘면 평소 45개(9 파드 × 5), 재배포가 겹치면 약 90개 → 1번 동결로 막음
+4. **테스트 중 미세 조정** — selfHeal 이 꺼져 있어 `kubectl scale`·`edit` 가능 (`OutOfSync` 로 표시, 다음 sync 때 Git 값으로 돌아감). 계속 쓸 값은 Git 에 커밋
+5. **끝나면** — 2번 커밋 revert → 앱 이미지 빌드 워크플로 Enable → (결정 시) `helm/argocd/applicationset.yaml` 의 `selfHeal: true`
 
 ### 프론트 배포 (baedalsak-client develop → S3)
 
