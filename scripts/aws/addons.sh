@@ -2,6 +2,7 @@
 # =============================================================================
 # EKS 애드온 설치 (helm) — terraform ephemeral apply 직후, 앱 배포 전에 실행
 #   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Loki · Fluent Bit(→ Loki) · Prometheus·Grafana(monitoring)
+#   · Argo CD(argocd, 앱 6개 배포)
 #   권한은 Terraform 이 만든 Pod Identity 연결을 그대로 사용 (SA 이름이 같아야 함)
 # 필요: aws cli, kubectl(kubeconfig 설정 완료), helm
 # =============================================================================
@@ -20,6 +21,7 @@ helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
 helm repo add grafana-community https://grafana-community.github.io/helm-charts >/dev/null # Tempo 차트 이전처 (grafana/tempo 는 지원 종료)
+helm repo add argo https://argoproj.github.io/argo-helm >/dev/null
 helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
@@ -154,8 +156,9 @@ spec:
         key: ${SECRET_PREFIX}/ops-cognito-grafana
 EOF
 kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin externalsecret/grafana-oauth --timeout=3m
-# 직접 관리하는 대시보드 (비용 추정 · Spring Boot Observability 수정본) — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음
-for d in baedalsak-cost spring-boot-observability; do
+# 직접 관리하는 대시보드 (비용 추정 · Spring Boot Observability 수정본 · Argo CD 공식 대시보드 v3.5.5 examples/dashboard.json)
+#   — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음
+for d in baedalsak-cost spring-boot-observability argocd; do
   kubectl -n monitoring create configmap "dashboard-$d" \
     --from-file="$(dirname "$0")/../../helm/addons/dashboards/$d.json" --dry-run=client -o yaml \
     | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
@@ -210,6 +213,31 @@ $(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; d
         - { port: 3000, protocol: TCP }
 EOF
 
+# 앱 6개 GitOps 배포 — ApplicationSet 은 deploy.sh 가 적용 (db-init · Cognito 정리 뒤)
+#   메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm show values 로 키를 먼저 확인
+echo "== Argo CD (argocd) — 단일 구성, UI 는 port-forward 전용 (scripts/aws/argocd-ui.sh)"
+# 앱 화면의 Grafana 링크 (딥링크) — 도메인이 들어가 Git 이 아니라 SSM grafana_root_url(https://<도메인>/grafana/)에서 채움
+#   서비스 대시보드 = Spring Boot Observability(uid dLsDQIUnzb, 변수 app_name) · Argo CD 대시보드(uid LCAgc9rWz)
+GRAFANA_URL="$(ssm grafana_root_url)"
+ARGOCD_LINKS="$(mktemp)"
+cat > "$ARGOCD_LINKS" <<LINKS
+configs:
+  cm:
+    application.links: |
+      - url: ${GRAFANA_URL}d/dLsDQIUnzb?var-app_name={{.metadata.name}}
+        title: Grafana 서비스 대시보드
+        description: 지표 · 로그 (운영자 로그인)
+      - url: ${GRAFANA_URL}d/LCAgc9rWz
+        title: Grafana Argo CD 대시보드
+LINKS
+helm upgrade --install argocd argo/argo-cd \
+  -n argocd --create-namespace --version 10.10.5 \
+  -f "$(dirname "$0")/../../helm/argocd/values.yaml" \
+  -f "$ARGOCD_LINKS" \
+  --wait --timeout 10m
+rm -f "$ARGOCD_LINKS"
+
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets
 kubectl get pods -n monitoring
+kubectl get pods -n argocd

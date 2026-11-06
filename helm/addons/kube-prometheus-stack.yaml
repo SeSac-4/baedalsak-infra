@@ -150,7 +150,7 @@ grafana:
             {{- if eq .Status "firing" }}[알림 발생] 배달싹 prod — {{ len .Alerts.Firing }}건{{ else }}[해결됨] 배달싹 prod — {{ len .Alerts.Resolved }}건{{ end }}
             ==================================================
             {{ range .Alerts }}
-            ■ {{ .Labels.alertname }}{{ if .Labels.service }}  ({{ .Labels.service }}){{ end }}
+            ■ {{ .Labels.alertname }}{{ if .Labels.service }}  ({{ .Labels.service }}){{ end }}{{ if .Labels.name }}  ({{ .Labels.name }} · {{ .Labels.health_status }}){{ end }}
               상태 : {{ if eq .Status "firing" }}발생{{ else }}해결{{ end }}
               내용 : {{ .Annotations.summary }}
               값   : {{ with .Values.A }}{{ printf "%.2f" . }}{{ else }}-{{ end }}
@@ -282,6 +282,29 @@ grafana:
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: loki
                   model: { refId: A, queryType: instant, expr: 'sum by (service) (count_over_time({namespace="prod"} |~ "(?i)listener failed|PermanentMailFailure" [5m]))' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+        # Argo CD (scripts/aws/addons.sh · helm/argocd) — 배포 시간이 아닐 때도 앱 이상을 알림 (배포 결과는 GitHub Actions → Discord)
+        #   OutOfSync 는 알리지 않음: selfHeal 을 꺼 둬 부하 테스트 중 kubectl 조정이 OutOfSync 로 남음
+        #   15분: 켜기(09:30) · 새 이미지 배포 중 Progressing · sync 재시도(약 5분)를 넘겨서도 Healthy 가 아닐 때만
+        - orgId: 1
+          name: argocd
+          folder: 배달싹
+          interval: 1m
+          rules:
+            - uid: argocd-app-unhealthy
+              title: Argo CD 앱 Healthy 아님
+              condition: C
+              for: 15m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "15분 넘게 Healthy 가 아님 (Degraded · Missing · Progressing 등) — kubectl -n argocd get applications · scripts/aws/argocd-ui.sh 로 확인" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: prometheus
+                  model: { refId: A, instant: true, expr: 'max by (name, health_status) (argocd_app_info{health_status!="Healthy"})' }
                 - refId: C
                   datasourceUid: __expr__
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [0] } }] }

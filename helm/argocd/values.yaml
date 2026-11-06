@@ -1,0 +1,71 @@
+# =============================================================================
+# Argo CD (namespace argocd) — argo/argo-cd 차트 values. scripts/aws/addons.sh 가 설치 (차트 버전 고정)
+#   역할: 앱 6개만 GitOps 배포 (helm/argocd/applicationset.yaml · appproject.yaml). 애드온은 지금처럼 addons.sh 가 helm 으로 설치
+#   단일 구성 (노드 2대 개발 환경) · UI 는 port-forward 전용 (scripts/aws/argocd-ui.sh) — ALB·CloudFront 에 노출하지 않음
+#   Grafana 딥링크(application.links)는 도메인이 필요해 addons.sh 가 SSM grafana_root_url 로 채움
+#   차트 버전을 올릴 땐 helm show values argo/argo-cd --version <버전> 으로 키를 먼저 확인
+# =============================================================================
+
+# SSO(dex)·알림(notifications) 미사용 — 배포 결과는 GitHub Actions → Discord, 평소 상태는 Grafana 알림(kube-prometheus-stack rules.yaml)
+dex:
+  enabled: false
+notifications:
+  enabled: false
+
+# 단일 구성 · 리소스
+#   차트 기본값엔 requests 가 없어 스케줄러가 Argo CD 몫을 계산하지 못함 (노드 2대 · 앱 포함 파드 약 34개)
+#   [임시값 — 실측 전 추정] 첫 켜기 후 Grafana(Argo CD 대시보드 · container_memory_working_set_bytes)로 보고 조정
+#   CPU limit 없음 · 메모리 limit 만 — 앱(aws.yaml)·Grafana 와 같은 방식
+#   metrics: ServiceMonitor → kube-prometheus-stack 이 수집 (serviceMonitorSelectorNilUsesHelmValues: false 라 라벨 불필요)
+controller:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  metrics:
+    enabled: true
+    serviceMonitor: { enabled: true }
+repoServer:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  metrics:
+    enabled: true
+    serviceMonitor: { enabled: true }
+applicationSet:
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 128Mi }
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  metrics:
+    enabled: true
+    serviceMonitor: { enabled: true }
+redis-ha:
+  enabled: false
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+configs:
+  params:
+    # TLS 없이 HTTP 로 응답 — port-forward(localhost) 전용이라 인증서 경고 없이 접속
+    server.insecure: true
+    # 첫 켜기에서 ExternalSecret · TargetGroupBinding 이 정상인데 계속 OutOfSync 면 (ESO · LBC 가 기본값을 채움)
+    #   controller.diff.server.side: "true" 를 켬 (Server-Side Diff — 클러스터 dry-run 결과와 비교)
+  # Git 확인 주기: 기본값(120s + 무작위 지연 최대 60s). 배포 때는 워크플로가 refresh 를 요청해 바로 반영 (scripts/aws/argocd-wait.sh)
+  cm:
+    # 모든 화면 위에 표시 (닫으면 문구가 바뀔 때까지 숨김)
+    ui.bannercontent: "배달싹 AWS 개발 환경 · 평일 09:30 생성 · 18:00 자동 삭제 · 배포는 develop 의 helm/values/aws-image.yaml 커밋 · selfHeal 꺼짐(부하 테스트 중 kubectl 조정 허용)"
+    ui.bannerurl: "https://github.com/SeSac-4/baedalsak-infra/blob/develop/docs/aws-runbook.md"
+    # 도움말(?) 메뉴 → 운영 런북
+    help.chatUrl: "https://github.com/SeSac-4/baedalsak-infra/blob/develop/docs/aws-runbook.md"
+    help.chatText: "운영 런북"
