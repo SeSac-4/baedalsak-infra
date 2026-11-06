@@ -6,6 +6,16 @@
 #   차트 버전을 올릴 땐 helm show values argo/argo-cd --version <버전> 으로 키를 먼저 확인
 # =============================================================================
 
+# NetworkPolicy — 차트 정책은 쓰지 않고 scripts/aws/addons.sh 가 숫자 포트로 직접 적용 (Grafana 와 같은 수준)
+#   ① 차트의 server 정책은 ingress 를 전부 허용(`- {}`, 조건 없이 고정)
+#   ② 차트 정책은 이름 붙은 포트(repo-server · metrics)를 쓰는데, Service 포트 이름이 달라(tcp-repo-server · http-metrics)
+#      EKS VPC CNI 네트워크 정책 요구("named port 는 Service 에도 같은 이름")를 어김 → controller → repo-server 가 막힐 수 있음
+#   → 전부 끄고 addons.sh 가 기본 차단 + 내부 통신·메트릭 허용을 숫자 포트로 적용
+#   UI 는 port-forward(kubelet → 파드 안 localhost)라 NetworkPolicy 대상이 아님
+global:
+  networkPolicy:
+    create: false
+
 # SSO(dex)·알림(notifications) 미사용 — 배포 결과는 GitHub Actions → Discord, 평소 상태는 Grafana 알림(kube-prometheus-stack rules.yaml)
 dex:
   enabled: false

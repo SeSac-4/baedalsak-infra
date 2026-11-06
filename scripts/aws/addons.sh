@@ -237,6 +237,65 @@ helm upgrade --install argocd argo/argo-cd \
   --wait --timeout 10m
 rm -f "$ARGOCD_LINKS"
 
+# argocd 네임스페이스 ingress 기본 차단 + 필요한 연결만 허용 — Grafana 와 같은 수준 (차트 정책은 끔: helm/argocd/values.yaml)
+#   포트는 숫자로 — EKS VPC CNI 네트워크 정책은 이름 붙은 포트를 쓰면 Service 에도 같은 이름이어야 하는데 차트 Service 이름이 다름
+#   repo-server 8081 ← server · controller · applicationset / redis 6379 ← server · repo-server · controller
+#   메트릭 controller 8082 · server 8083 · repo-server 8084 ← monitoring(Prometheus)
+#   server 8080(UI·API)은 아무 데서도 허용 안 함 → 다른 파드가 로그인 API 에 직접 못 들어옴. UI 는 port-forward(정책 대상 아님)
+#   applicationset-controller 는 들어오는 연결이 필요 없어 기본 차단만 받음
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-default-deny, namespace: argocd }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-repo-server, namespace: argocd }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: argocd-repo-server } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-application-controller } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-applicationset-controller } }
+      ports:
+        - { port: 8081, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-redis, namespace: argocd }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: argocd-redis } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-repo-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-application-controller } }
+      ports:
+        - { port: 6379, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-metrics, namespace: argocd }
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [argocd-application-controller, argocd-server, argocd-repo-server] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports:
+        - { port: 8082, protocol: TCP }
+        - { port: 8083, protocol: TCP }
+        - { port: 8084, protocol: TCP }
+EOF
+
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets
 kubectl get pods -n monitoring
