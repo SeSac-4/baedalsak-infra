@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 배포할 이미지 태그 (비우면 마지막으로 빌드한 이미지)
+        description: 배포할 이미지 태그 (입력하면 helm/values/aws-image.yaml 에 커밋 후 배포, 비우면 그 파일의 태그)
         required: false
         default: ""
       task_token:
@@ -26,7 +26,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # contents: write — 태그를 입력했을 때 helm/values/aws-image.yaml 커밋 (scripts/aws/image-tag.sh)
   up:
+    permissions:
+      id-token: write
+      contents: write
     uses: ./.github/workflows/aws-stack.yml
     secrets: inherit
     with:

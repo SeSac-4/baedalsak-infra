@@ -1,91 +1,66 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 앱 6개 배포 (namespace = ENV_NAME) — 사용: deploy.sh <이미지 태그>
-#   values: 차트 기본값 → services/<서비스>.yaml → aws.yaml → 아래 --set
-#   gateway: replica 2 · HPA 2~4(CPU 70%, 확장은 3분 지속 시) · PDB · TargetGroupBinding
-#   order·payment: 1 (HPA 1~3 은 부하 테스트 시점) / member·store·delivery: 1
-#   DB 쓰는 5개: Hikari 연결 풀 5 (RDS 연결 수 한도)
+# 앱 6개 배포 (Argo CD, namespace = ENV_NAME) — 사용: deploy.sh <이미지 태그>
+#   <이미지 태그> = helm/values/aws-image.yaml 에 커밋된 태그 (이 스크립트는 기다릴 태그로만 씀 — 배포 기준은 Git)
+#   1) 네임스페이스 · readiness gate 라벨 · NetworkPolicy (파드보다 먼저)
+#   2) AppProject(helm/argocd/appproject.yaml) · ApplicationSet(applicationset.yaml) 에 Git 에 둘 수 없는 값을 채워 적용
+#      → Argo CD 가 6개 sync
+#   3) 6개가 그 태그로 Synced · Healthy 될 때까지 대기 (scripts/aws/argocd-wait.sh)
+#   서비스별 값(gateway HPA 2~4·PDB·TGB, 연결 풀 5)은 helm/values/aws.yaml · aws-services/ 에 있음
+#   Argo CD 는 addons.sh 가 설치 (없으면 실패)
 # =============================================================================
 set -euo pipefail
 
-TAG="${1:?이미지 태그가 필요합니다 (images 워크플로가 출력한 태그)}"
+TAG="${1:?이미지 태그가 필요합니다 (helm/values/aws-image.yaml 의 태그)}"
 # shellcheck source=scripts/aws/env.sh
 source "$(dirname "$0")/env.sh"
 REGION="$AWS_REGION"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-CHART="$ROOT/helm/charts/baedalsak-service"
+# Argo CD 가 읽을 레포·브랜치 (기본: 이 레포 develop)
+REPO_URL="${GITOPS_REPO_URL:-https://github.com/${GITHUB_REPOSITORY:-SeSac-4/baedalsak-infra}.git}"
+REVISION="${GITOPS_REVISION:-develop}"
+
+kubectl -n argocd get deploy argocd-server >/dev/null 2>&1 || { echo "Argo CD 가 없습니다 — scripts/aws/addons.sh 를 먼저 실행하세요"; exit 1; }
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
-REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
-RDS_HOST="$(ssm rds_host)"
-MQ_HOST="$(ssm mq_host)"
-REDIS_HOST="$(ssm redis_host)"
-TG_ARN="$(ssm target_group_arn)"
 ALB_CIDRS="$(ssm alb_subnet_cidrs)"
-IMAGE_BUCKET="$(ssm image_bucket)"
-IMAGE_BASE_URL="$(ssm image_base_url)"
-# 추적 전송 주소 (helm/addons/tempo.yaml) — 앱이 OTel 로 바뀌기 전에는 쓰이지 않음
-OTLP_TRACES="http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 # 새 파드가 ALB 에서 healthy 가 된 뒤 이전 파드 종료 (롤링 배포 중 502 방지)
 kubectl label namespace "$NS" elbv2.k8s.aws/pod-readiness-gate-inject=enabled --overwrite
 
-# ingress 기본 차단 + 허용 목록 (scripts/aws/networkpolicy.yaml) — 파드보다 먼저 적용
+# ingress 기본 차단 + 허용 목록 (scripts/aws/networkpolicy.yaml) — 파드보다 먼저 적용 (Argo CD 관리 밖)
 ALB_IP_BLOCKS="$(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; done)"
 NETPOL="$(<"$ROOT/scripts/aws/networkpolicy.yaml")"
 NETPOL="${NETPOL//'${NS}'/$NS}"
 printf '%s\n' "${NETPOL//'${ALB_IP_BLOCKS}'/$ALB_IP_BLOCKS}" | kubectl apply -f -
 
-# 실패 시 rollback.sh 가 되돌릴 리비전 (서비스별 마지막 정상 배포, 처음 설치면 빈 값)
-PREV="${TMPDIR:-/tmp}/${NAME}-deploy-prev"
-: > "$PREV"
-for svc in member store order payment delivery gateway; do
-  echo "$svc $(helm history "$svc" -n "$NS" -o json 2>/dev/null | jq -r '[.[] | select(.status=="deployed")][-1].revision // empty')" >> "$PREV"
+# ApplicationSet 의 __이름__ 채우기 — 계정 번호가 들어가거나(ECR·TG ARN·버킷) 매일 바뀌는 값(TG ARN·MQ 주소 등)
+declare -A V=(
+  [REPO_URL]="$REPO_URL"
+  [REVISION]="$REVISION"
+  [NAMESPACE]="$NS"
+  [IMAGE_REGISTRY]="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
+  [IMAGE_NAMESPACE]="$NAME"
+  [AWS_REGION]="$REGION"
+  [SECRET_PREFIX]="$SECRET_PREFIX"
+  [SSM_PREFIX]="$SSM_PREFIX"
+  [RDS_HOST]="$(ssm rds_host)"
+  [MQ_HOST]="$(ssm mq_host)"
+  [MQ_VHOST]="/$ENV_NAME"
+  [REDIS_HOST]="$(ssm redis_host)"
+  [TG_ARN]="$(ssm target_group_arn)"
+  [IMAGE_BUCKET]="$(ssm image_bucket)"
+  [IMAGE_BASE_URL]="$(ssm image_base_url)"
+)
+# 프로젝트(허용 범위)를 먼저 — ApplicationSet 이 만든 Application 이 프로젝트를 찾지 못해 실패하지 않게
+for f in appproject applicationset; do
+  M="$(<"$ROOT/helm/argocd/$f.yaml")"
+  for k in "${!V[@]}"; do M="${M//"__${k}__"/"${V[$k]}"}"; done # 따옴표: 값 안의 & 를 그대로
+  if grep -q '"__[A-Z_]*__"' <<<"$M"; then echo "$f: 채우지 못한 값 $(grep -o '"__[A-Z_]*__"' <<<"$M" | sort -u | tr '\n' ' ')"; exit 1; fi
+  printf '%s\n' "$M" | kubectl apply -f -
 done
 
-for svc in member store order payment delivery gateway; do
-  extra=()
-  case "$svc" in
-    gateway)
-      extra+=(--set autoscaling.enabled=true --set autoscaling.minReplicas=2 --set autoscaling.maxReplicas=4
-              --set autoscaling.targetCPUUtilizationPercentage=70
-              --set autoscaling.behavior.scaleUp.stabilizationWindowSeconds=180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — 3분 넘게 높을 때만 확장
-              --set pdb.enabled=true --set pdb.minAvailable=1
-              --set targetGroupBinding.enabled=true --set-string targetGroupBinding.targetGroupARN="$TG_ARN") ;;
-    *)
-      # DB 쓰는 5개: 연결 풀 5 (기본 10) — 배포 중 이전·새 파드가 겹쳐도 Σ(파드 × 풀) × 2 = 50 < RDS max_connections(t4g.micro 약 80)
-      #   필요량 ≈ 최고 TPS × 쿼리 평균 시간(초) + 여유 = 50 × 0.05 ≈ 3 → 5 (AWS 만 적용, 로컬은 앱 기본값)
-      extra+=(--set autoscaling.enabled=false --set autoscaling.minReplicas=1
-              --set-string extraEnv.SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=5) ;;
-  esac
-  # store: 가게·메뉴 이미지 presigned 업로드 (버킷 · 조회 주소는 persistent/images.tf)
-  [ "$svc" = store ] && extra+=(--set-string extraEnv.IMAGE_BUCKET="$IMAGE_BUCKET" --set-string extraEnv.IMAGE_BASE_URL="$IMAGE_BASE_URL")
-
-  echo "== $svc"
-  helm upgrade --install "$svc" "$CHART" -n "$NS" \
-    -f "$ROOT/helm/values/services/$svc.yaml" \
-    -f "$ROOT/helm/values/aws.yaml" \
-    --set-string global.imageRegistry="$REGISTRY" \
-    --set-string global.imageNamespace="$NAME" \
-    --set-string global.awsRegion="$REGION" \
-    --set-string global.externalSecret.keyPrefix="$SECRET_PREFIX" \
-    --set-string global.externalSecret.ssmStore=aws-parameter-store \
-    --set-string global.externalSecret.ssmPrefix="$SSM_PREFIX" \
-    --set-string global.rabbitmq.vhost="/$ENV_NAME" \
-    --set-string global.db.host="$RDS_HOST" \
-    --set-string global.rabbitmq.host="$MQ_HOST" \
-    --set-string global.redisSession.host="$REDIS_HOST" \
-    --set-string extraEnv.MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT="$OTLP_TRACES" \
-    --set-string image.tag="$TAG" \
-    "${extra[@]}"
-done
-
-# ESO 가 Secret 을 만들 때까지 대기 후 롤아웃 확인
-for svc in member store order payment delivery gateway; do
-  kubectl -n "$NS" wait --for=condition=Ready "externalsecret/$svc" --timeout=3m || true
-done
-for svc in member store order payment delivery gateway; do
-  kubectl -n "$NS" rollout status "deploy/$svc" --timeout=10m
-done
+# Argo CD 가 sync → 6개가 이 태그로 뜰 때까지 대기 (ExternalSecret 도 Healthy 판정에 포함)
+"$ROOT/scripts/aws/argocd-wait.sh" "$TAG"
 kubectl -n "$NS" get pods -o wide

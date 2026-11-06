@@ -3,8 +3,9 @@
 #   서버 레포(vars.SERVER_REPO)를 체크아웃해서 서비스 6개를 amd64 로 빌드
 #   실행: 서버 레포 develop push → 서버 레포 notify-infra.yml 이 repository_dispatch(server-updated) 로 호출
 #         또는 수동 실행
-#   빌드가 모두 성공하면 클러스터가 켜져 있을 때 바로 배포(aws-stack action=deploy) → smoke test
-#   꺼져 있으면 배포는 건너뛰고, 다음 "AWS 켜기" 가 마지막 빌드를 배포
+#   빌드가 모두 성공하면 태그를 helm/values/aws-image.yaml 에 커밋(aws-stack action=deploy)
+#     켜져 있으면 Argo CD 가 그 커밋으로 배포 → sync 대기 → smoke test (실패 시 태그 커밋 git revert)
+#     꺼져 있으면 커밋만 하고, 다음 "AWS 켜기" 가 그 태그를 배포
 #   선행: "AWS 상시 리소스 적용" 워크플로 (ECR 저장소 생성)
 # 레포 Variables: AWS_REGION · PROJECT · ENV_NAME · AWS_ROLE_ARN · SERVER_REPO · SERVER_REF
 # 레포 Secrets  : SERVER_REPO_TOKEN (서버 레포가 private 일 때만 — contents:read 권한 PAT)
@@ -108,8 +109,12 @@ jobs:
         run: echo "### $SERVICE → image_tag **$TAG** ($SERVER_REPO@$SERVER_REF)" >> "$GITHUB_STEP_SUMMARY"
 
   # 6개 모두 성공했을 때만. AWS 켜기·끄기와 겹치지 않게 같은 concurrency group
+  #   contents: write — 이미지 태그 커밋·되돌리기 (scripts/aws/image-tag.sh, develop 에 push)
   deploy:
     needs: build
+    permissions:
+      id-token: write
+      contents: write
     concurrency:
       group: aws-stack
       cancel-in-progress: false
