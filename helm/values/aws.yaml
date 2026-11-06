@@ -1,7 +1,8 @@
 # =============================================================================
 # AWS (EKS, namespace = ENV_NAME)
-#   "" 로 둔 환경별 값은 배포 스크립트(scripts/aws/deploy.sh)가 환경변수·SSM 값으로 --set 함
-#   적용 순서: 차트 기본값 → services/<서비스>.yaml → aws.yaml → 스크립트 --set
+#   "" 로 둔 환경별 값은 켜기 때 scripts/aws/deploy.sh 가 환경변수·SSM 값으로 ApplicationSet(helm/argocd/applicationset.yaml)에 채움
+#     (레포가 PUBLIC 이라 계정 번호가 들어가거나 매일 바뀌는 값은 Git 에 두지 않음)
+#   적용 순서(Argo CD): 차트 기본값 → services/<서비스>.yaml → aws.yaml → aws-services/<서비스>.yaml → aws-image.yaml → ApplicationSet valuesObject
 # =============================================================================
 global:
   imageRegistry: ""                 # --set: <ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com
@@ -36,6 +37,9 @@ global:
 # ElastiCache 전송 중 암호화(TLS) — 앱 설정 변경 없이 Spring 표준 속성으로 켬
 extraEnv:
   SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  # 추적 전송 주소 (helm/addons/tempo.yaml)
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo.monitoring.svc.cluster.local:4318/v1/traces
+  # DB 연결 풀(Hikari 5)은 DB 쓰는 5개만 — aws-services/<서비스>.yaml (gateway 제외)
 
 # [임시값 — 결정 예정] 리소스: CPU limit 없음 (JVM 기동 시 CPU 제한 → readiness 실패 방지), 메모리 requests = limits
 #   팀 결정 - limit 1 코어. AWS 에서 검증한 값으로 우선 운영하고 확정 후 변경
@@ -50,7 +54,7 @@ resources:
 terminationGracePeriodSeconds: 60
 preStopSleepSeconds: 20
 
-# replica·HPA·PDB 는 서비스별로 scripts/aws/deploy.sh 에서 지정 (gateway 2·HPA 2~4·PDB / 나머지 1)
+# replica·HPA·PDB: 기본은 1 고정(아래), gateway 만 aws-services/gateway.yaml 에서 HPA 2~4·PDB
 autoscaling:
   enabled: false
   minReplicas: 1

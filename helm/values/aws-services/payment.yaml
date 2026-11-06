@@ -1,0 +1,8 @@
+# payment — AWS 에서만 쓰는 값 (Argo CD valueFiles: services/<서비스>.yaml → aws.yaml → 이 폴더 → aws-image.yaml)
+#   이전에는 scripts/aws/deploy.sh 의 --set. replica 1 · HPA 끔은 aws.yaml 기본값
+
+# DB 연결 풀 5 (기본 10) — 배포 중 이전·새 파드가 겹쳐도 Σ(파드 × 풀) × 2 = 50 < RDS max_connections(t4g.micro 약 80)
+#   필요량 ≈ 최고 TPS × 쿼리 평균 시간(초) + 여유 = 50 × 0.05 ≈ 3 → 5
+#   values 파일끼리는 null 로 키를 지울 수 없어(helm) aws.yaml 이 아니라 서비스별로 둠 — gateway 는 DB 를 쓰지 않아 없음
+extraEnv:
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"

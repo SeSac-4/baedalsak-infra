@@ -1,0 +1,21 @@
+# gateway — AWS 에서만 쓰는 값 (Argo CD valueFiles: services/<서비스>.yaml → aws.yaml → 이 폴더 → aws-image.yaml)
+#   이전에는 scripts/aws/deploy.sh 의 --set
+#   targetGroupBinding.targetGroupARN 은 매일 바뀌어 켜기 때 deploy.sh 가 ApplicationSet 에 채움
+
+# replica 2 · HPA 2~4 (CPU 70%) — services/gateway.yaml 의 2~8 · 60% 는 부하 테스트 이후 값
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — 3분 넘게 높을 때만 확장
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ALB 대상 그룹(Terraform)에 파드 IP 등록
+targetGroupBinding:
+  enabled: true
