@@ -27,9 +27,9 @@ AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다
 
 | Actions 워크플로 | 실행 | 하는 일 |
 |---|---|---|
-| AWS 켜기 (평일 09:30) | 예약 · 수동 | 상시 리소스 apply → VPC·EKS·RDS(빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test |
+| AWS 켜기 (평일 09:30) | 예약 · 수동 | 상시 리소스 apply → VPC·EKS·RDS(빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온(+Argo CD) → DB·MQ 초기화 → 앱 배포(Argo CD) → smoke test |
 | AWS 끄기 (평일 18:00) | 예약 · 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
-| 앱 이미지 빌드 (서버 → ECR) | 서버 develop 머지 시 자동 · 수동 | baedalsak-server 6개 이미지 빌드 → ECR → 켜져 있으면 앱 배포 |
+| 앱 이미지 빌드 (서버 → ECR) | 서버 develop 머지 시 자동 · 수동 | baedalsak-server 6개 이미지 빌드 → ECR → 태그를 `helm/values/aws-image.yaml` 에 커밋 → 켜져 있으면 Argo CD 가 배포 |
 | 프론트 배포 (클라이언트 → S3) | 클라이언트 develop push 시 자동 · 수동 | `npm run build`(토스 클라이언트 키는 Parameter Store) → S3 → CloudFront 무효화 |
 | AWS 상시 리소스 적용 | 수동 | persistent 스택 apply (ECR · Secrets Manager · Parameter Store · Cognito · SES · S3 · 운영 자동화) |
 | AWS 변경 미리보기 (plan) | 수동 | terraform plan |
@@ -50,14 +50,17 @@ baedalsak-infra/
 │   ├── values/
 │   │   ├── services/<서비스>.yaml     # DB 계정·schema, 사용 의존성, HPA 범위 (환경 무관)
 │   │   ├── local.yaml                # minikube + compose 의존성
-│   │   └── aws.yaml                  # EKS 공통 값 (주소·리전은 scripts/aws/deploy.sh 가 --set)
+│   │   ├── aws.yaml                  # EKS 공통 값 (주소·리전처럼 Git 에 둘 수 없는 값은 deploy.sh 가 ApplicationSet 에 채움)
+│   │   ├── aws-services/             # AWS 전용 서비스별 값 (gateway: HPA 2~4 · PDB · TGB / 나머지 5개: 연결 풀 5)
+│   │   └── aws-image.yaml            # 앱 이미지 태그 — 앱 이미지 빌드가 커밋, Argo CD 가 감지해 배포
+│   ├── argocd/                       # Argo CD values · 앱 6개 ApplicationSet
 │   └── addons/                       # AWS 애드온 values — kube-prometheus-stack · loki · tempo · aws-for-fluent-bit
 ├── terraform/
 │   ├── bootstrap/                    # 처음 1회 — state S3 · GitHub OIDC 역할
 │   ├── persistent/                   # 상시 — ECR · Secrets Manager · Parameter Store · Cognito · SES · S3 · CloudTrail · 운영 자동화(Lambda ①~④)
 │   └── ephemeral/                    # 평일 생성·삭제 — VPC · EKS · RDS · MQ · ElastiCache · ALB · CloudFront · 알람
 ├── scripts/
-│   ├── aws/                          # addons · deploy · db-init · smoke-test · rollback · down · tunnel …
+│   ├── aws/                          # addons · deploy(Argo CD) · argocd-wait · image-tag · db-init · smoke-test · rollback · down · tunnel · argocd-ui …
 │   └── hpa-load.sh                   # HPA 확장 확인용 부하
 ├── .github/workflows/                # 켜기 · 끄기 · 이미지 빌드 · 프론트 배포 · 상시 리소스 · plan
 ├── local/traefik-values.yaml         # 로컬 Ingress 컨트롤러
@@ -113,8 +116,8 @@ AWS 에서만 추가로 넣는 값
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | member | Parameter Store → ESO → Secret |
 | `COGNITO_ISSUER_URI` | gateway | Parameter Store → ESO → Secret |
 | `SPRING_DATA_REDIS_SSL_ENABLED` | 6개 (ElastiCache TLS) | ConfigMap |
-| `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | 6개 — Tempo `http://tempo.monitoring.svc.cluster.local:4318/v1/traces` | ConfigMap (`deploy.sh`) |
-| `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | gateway 제외 5개 — `5` (RDS 연결 수 한도) | ConfigMap (`deploy.sh`) |
+| `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | 6개 — Tempo `http://tempo.monitoring.svc.cluster.local:4318/v1/traces` | ConfigMap (`values/aws.yaml`) |
+| `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | gateway 제외 5개 — `5` (RDS 연결 수 한도) | ConfigMap (`values/aws-services/<서비스>.yaml`) |
 | `SPRING_FLYWAY_LOCATIONS` | member (seed 위치) | ConfigMap |
 
 DB: RDS 인스턴스 1개 + 서비스별 DB 5개 (`DB_NAME` = 서비스 `db.name`, 없으면 schema 이름)
@@ -134,7 +137,7 @@ DB 계정·schema: member `member_svc/member`, store `store_svc/store`, order `o
 
 ## HPA · 리소스
 
-| 서비스 | 로컬 min~max | AWS values 결정값 | AWS 지금 (개발 기간, `deploy.sh` 가 덮어씀) |
+| 서비스 | 로컬 min~max | AWS values 결정값 | AWS 지금 (개발 기간, `values/aws.yaml` · `aws-services/<서비스>.yaml` 이 덮어씀) |
 |---|---|---|---|
 | gateway | 1~3 | 2~8 (CPU 60%) | **2~4** (CPU 70%, 3분 넘게 높을 때 확장) · PDB 최소 1 |
 | order | 1~3 | 2~10 (CPU 65%) | **1 고정** (부하 테스트 때 1~3) |
