@@ -14,3 +14,4 @@ autoscaling:                   # AWS 기준 (로컬은 values/local.yaml 에서 
 routes:
   STORE_SERVICE_URL: http://store:8080
   MEMBER_SERVICE_URL: http://member:8080
+  PAYMENT_SERVICE_URL: http://payment:8080   # [내부] 결제 요청 · 승인 · 상태 조회 · 만료 (사가 조정자)

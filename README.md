@@ -105,6 +105,7 @@ values 적용 순서: `차트 기본값 → services/<서비스>.yaml → local.
 | `DYNAMODB_ENDPOINT`, `AWS_REGION` (+로컬 더미 키) | `dynamodb.enabled: true` 인 서비스 (**주석 처리 — 현재 없음**) | ConfigMap |
 | `STORE_SERVICE_URL` … `MEMBER_SERVICE_URL` | gateway | ConfigMap |
 | `ORDER_SERVICE_URL` | payment (결제 요청 생성 시 주문 조회) | ConfigMap |
+| `PAYMENT_SERVICE_URL` | order (결제 요청 · 승인 · 상태 조회 · 만료) | ConfigMap |
 
 AWS 에서만 추가로 넣는 값
 
