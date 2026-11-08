@@ -169,6 +169,25 @@ resource "aws_secretsmanager_secret_version" "grafana" {
   secret_string = jsonencode({ "admin-user" = "admin", "admin-password" = random_password.grafana.result })
 }
 
+# Argo CD 개발팀 읽기 전용 계정 dev (helm/argocd/values.yaml RBAC) — addons.sh 가 bcrypt 값을 argocd-secret 에 넣고,
+#   scripts/aws/argocd-ui.sh 가 password 를 보여 줌. 클러스터를 매일 새로 만들어도 비밀번호는 그대로
+resource "random_password" "argocd_dev" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "argocd_dev" {
+  name                    = "${local.secret_prefix}/argocd-dev"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "argocd_dev" {
+  secret_id     = aws_secretsmanager_secret.argocd_dev.id
+  secret_string = jsonencode({ username = "dev", password = random_password.argocd_dev.result, bcrypt = bcrypt(random_password.argocd_dev.result) })
+  # bcrypt() 는 실행마다 salt 가 바뀌어 매 apply 마다 diff 가 남 → 처음 값 유지 (비밀번호를 바꾸려면 random_password 를 taint)
+  lifecycle { ignore_changes = [secret_string] }
+}
+
 # ---------- Loki 저장소 (앱 로그, Fluent Bit → Loki → S3) — 클러스터를 매일 지워도 로그는 남음 ----------
 resource "aws_s3_bucket" "loki" {
   bucket        = "${local.name}-loki-${local.account}"

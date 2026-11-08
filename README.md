@@ -215,7 +215,7 @@ curl -i http://localhost:18080/api/v1/stores
 | 알람 (Grafana) | 비용 추정(오늘 예상 10·20달러, 시간당 1.5달러) · 앱 ERROR 로그 5분 10건 이상 · MQ 리스너 처리 실패 → SNS → 메일 | 켜져 있을 때만 |
 
 Grafana 는 외부에 열지 않습니다 — EKS 에 등록된 사람만 `kubectl port-forward` 로 접속, 로그인 없이 Editor (설정은 admin). 앱 파드에서는 NetworkPolicy 로 막힘.
-EKS 권한: 인프라(`infra_admin_users`) = 관리자, 개발팀(`TEAM_MEMBER_ARNS` Secret) = 전체 조회 + `prod` · `monitoring` 수정.
+EKS 권한: 인프라(`infra_admin_users`) = 관리자, 개발팀(`TEAM_MEMBER_ARNS` Secret) = 전체 조회 + `prod` · `monitoring` 수정 + `argocd` port-forward(Argo CD UI, 읽기 전용 dev 계정).
 접속 방법은 `docs/aws-runbook.md`. 백엔드 설정 요청(완료)은 `docs/관측성/배달싹_관측성_백엔드_설정요청_v1.md`.
 
 ## 문서

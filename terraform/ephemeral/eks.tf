@@ -80,6 +80,8 @@ module "eks" {
     } },
     { for arn in local.team_arns : "team-${element(split("/", arn), 1)}" => {
       principal_arn = arn
+      # Argo CD UI port-forward 만 추가 허용 (addons.sh 의 Role argocd-ui-portforward) — argocd 네임스페이스 Secret 은 못 읽음
+      kubernetes_groups = ["argocd-ui-portforward"]
       policy_associations = {
         view = { policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", access_scope = { type = "cluster" } }
         edit = { policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", access_scope = { type = "namespace", namespaces = [local.namespace, "monitoring"] } }

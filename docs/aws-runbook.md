@@ -169,7 +169,7 @@ aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsa
 | 배포된 태그 확인 | `helm/values/aws-image.yaml` (develop) 또는 `kubectl -n argocd get applications` |
 | 특정 태그로 배포 | 클러스터가 켜져 있을 때 `aws-image.yaml` 의 태그를 바꿔 develop 에 커밋 (또는 AWS 켜기에 image_tag 입력) |
 | 직전 태그로 되돌리기 | 해당 태그 커밋을 `git revert` 후 develop push (smoke test 실패 시 워크플로가 자동으로 함) |
-| UI 보기 | `./scripts/aws/argocd-ui.sh` → `http://127.0.0.1:8090`, 사용자 admin, 비밀번호는 스크립트가 출력 (매일 바뀜) |
+| UI 보기 | `./scripts/aws/argocd-ui.sh` → `http://127.0.0.1:8090`, 인프라는 admin(매일 바뀜) · 개발팀은 읽기 전용 dev(앱 조회·로그만, Secrets Manager `<SECRET_PREFIX>/argocd-dev`), 비밀번호는 스크립트가 출력 |
 | 상태 확인 | `kubectl -n argocd get applications` — `Synced` · `Healthy` 면 정상 |
 | 이상 알림 | Grafana 알림 "Argo CD 앱 Healthy 아님" — 15분 넘게 Healthy 가 아니면 Discord(incident). OutOfSync 는 알리지 않음 (selfHeal 꺼짐) |
 | 지표 | Grafana 배달싹 폴더 "ArgoCD" 대시보드, 또는 Argo CD 앱 화면의 "Grafana 서비스 대시보드" 링크 |

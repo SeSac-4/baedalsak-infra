@@ -72,7 +72,18 @@ configs:
     # 첫 켜기에서 ExternalSecret · TargetGroupBinding 이 정상인데 계속 OutOfSync 면 (ESO · LBC 가 기본값을 채움)
     #   controller.diff.server.side: "true" 를 켬 (Server-Side Diff — 클러스터 dry-run 결과와 비교)
   # Git 확인 주기: 기본값(120s + 무작위 지연 최대 60s). 배포 때는 워크플로가 refresh 를 요청해 바로 반영 (scripts/aws/argocd-wait.sh)
+  # 개발팀 읽기 전용 (최소 권한) — 계정 dev 는 UI 로그인만 (API 키 발급 없음), 비밀번호는 addons.sh 가 Secrets Manager 에서 넣음
+  #   허용: 프로젝트 baedalsak 의 앱 조회 · 파드 로그 보기. 그 밖(sync · 삭제 · exec · 설정 · 레포 · 클러스터)은 전부 거부
+  #   policy.default "" = 규칙에 없는 계정은 아무 권한 없음 (admin 은 내장 role:admin 그대로)
+  rbac:
+    policy.default: ""
+    policy.csv: |
+      p, role:dev-readonly, applications, get, baedalsak/*, allow
+      p, role:dev-readonly, logs, get, baedalsak/*, allow
+      p, role:dev-readonly, projects, get, baedalsak, allow
+      g, dev, role:dev-readonly
   cm:
+    accounts.dev: login
     # 모든 화면 위에 표시 (닫으면 문구가 바뀔 때까지 숨김)
     ui.bannercontent: "배달싹 AWS 개발 환경 · 평일 09:30 생성 · 18:00 자동 삭제 · 배포는 develop 의 helm/values/aws-image.yaml 커밋 · selfHeal 꺼짐(부하 테스트 중 kubectl 조정 허용)"
     ui.bannerurl: "https://github.com/SeSac-4/baedalsak-infra/blob/develop/docs/aws-runbook.md"

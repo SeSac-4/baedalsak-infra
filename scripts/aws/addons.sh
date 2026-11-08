@@ -230,6 +230,14 @@ configs:
       - url: ${GRAFANA_URL}d/LCAgc9rWz
         title: Grafana Argo CD 대시보드
 LINKS
+# 개발팀 읽기 전용 계정 dev 의 비밀번호 (bcrypt, terraform persistent 가 만듦) — 없으면 dev 로그인만 안 되고 설치는 계속
+DEV_HASH="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${SECRET_PREFIX}/argocd-dev" \
+  --query SecretString --output text 2>/dev/null | jq -r '.bcrypt // empty' || true)"
+if [ -n "$DEV_HASH" ]; then
+  printf '  secret:\n    extra:\n      accounts.dev.password: "%s"\n' "$DEV_HASH" >> "$ARGOCD_LINKS"
+else
+  echo "경고: ${SECRET_PREFIX}/argocd-dev 없음 — Argo CD dev 계정 로그인 불가 (terraform persistent apply 필요)"
+fi
 helm upgrade --install argocd argo/argo-cd \
   -n argocd --create-namespace --version 10.10.5 \
   -f "$(dirname "$0")/../../helm/argocd/values.yaml" \
@@ -294,6 +302,25 @@ spec:
         - { port: 8082, protocol: TCP }
         - { port: 8083, protocol: TCP }
         - { port: 8084, protocol: TCP }
+EOF
+
+# 개발팀(EKS access entry 그룹 argocd-ui-portforward, terraform/ephemeral/eks.tf) — argocd 에선 port-forward 만 추가 허용
+#   파드 조회는 클러스터 View 로 이미 있음. Secret(admin 비밀번호 등) 읽기 · exec · 수정은 주지 않음
+#   shortcut: 파드 이름이 매번 바뀌어 resourceNames 로 argocd-server 만 지정 못 함 → argocd 의 다른 파드도 port-forward 가능
+#             (redis 는 비밀번호 필요, 메트릭은 조회용). 막아야 하면 UI 를 ALB + Cognito 로 노출하는 방식으로 전환
+kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: argocd-ui-portforward, namespace: argocd }
+rules:
+  - { apiGroups: [""], resources: [pods/portforward], verbs: [create] }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: argocd-ui-portforward, namespace: argocd }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: argocd-ui-portforward }
+subjects:
+  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: argocd-ui-portforward }
 EOF
 
 kubectl get pods -n kube-system
