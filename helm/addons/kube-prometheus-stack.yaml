@@ -156,7 +156,7 @@ grafana:
               값   : {{ with .Values.A }}{{ printf "%.2f" . }}{{ else }}-{{ end }}
             {{- if .Values.H }}
               항목별 시간당 (추정 · 달러, 대시보드 '항목별 시간당' 과 같은 값)
-                · EC2 노드 (t3.large × {{ printf "%.0f" .Values.N }}대) : {{ printf "%.3f" .Values.E }}
+                · EC2 노드 (t3a.large × {{ printf "%.0f" .Values.N }}대) : {{ printf "%.3f" .Values.E }}
                 · Amazon MQ : 0.197
                 · NAT · 디스크 (EC2 기타) : 0.104
                 · EKS 컨트롤 플레인 : 0.100
@@ -205,10 +205,10 @@ grafana:
                 - refId: A
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
-                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.0936 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.0936 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
                 # 메일 본문 항목별 시간당 (templates.yaml) — H 합계 · E EC2 노드 · N 노드 수
-                - &cost_h { refId: H, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: H, instant: true, expr: '0.5515 + 0.104 * count(kube_node_info)' } }
-                - &cost_e { refId: E, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: E, instant: true, expr: '0.104 * count(kube_node_info)' } }
+                - &cost_h { refId: H, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: H, instant: true, expr: '0.5515 + 0.0936 * count(kube_node_info)' } }
+                - &cost_e { refId: E, relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: E, instant: true, expr: '0.0936 * count(kube_node_info)' } }
                 - &cost_n { refId: "N", relativeTimeRange: { from: 600, to: 0 }, datasourceUid: prometheus, model: { refId: "N", instant: true, expr: 'count(kube_node_info)' } }
                 - refId: C
                   datasourceUid: __expr__
@@ -224,7 +224,7 @@ grafana:
                 - refId: A
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
-                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
+                  model: { refId: A, instant: true, expr: 'sum_over_time((0.5515 + 0.0936 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.0936 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)' }
                 - *cost_h
                 - *cost_e
                 - *cost_n
@@ -242,7 +242,7 @@ grafana:
                 - refId: A
                   relativeTimeRange: { from: 600, to: 0 }
                   datasourceUid: prometheus
-                  model: { refId: A, instant: true, expr: '(0.5515 + 0.104 * count(kube_node_info))' }
+                  model: { refId: A, instant: true, expr: '(0.5515 + 0.0936 * count(kube_node_info))' }
                 - *cost_h
                 - *cost_e
                 - *cost_n

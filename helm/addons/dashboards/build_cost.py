@@ -7,7 +7,7 @@ FIXED = [
     ("CloudWatch", 0.048), ("RDS", 0.028), ("ALB", 0.024), ("ElastiCache", 0.018),
     ("Secrets Manager", 0.013), ("공인 IPv4", 0.010), ("bastion", 0.0065), ("S3 · ECR · CloudTrail · 기타", 0.003),
 ]
-NODE = 0.104  # t3.large 시간당
+NODE = 0.0936  # t3a.large 시간당 (서울 On-Demand, 이전 t3.large 0.104)
 FIXED_SUM = round(sum(v for _, v in FIXED), 4)
 HOURLY = f"({FIXED_SUM} + {NODE} * count(kube_node_info))"
 TODAY = f"sum_over_time({HOURLY}[24h:1m]) / 60"
@@ -23,7 +23,7 @@ def stat(i, title, expr, x, w, unit="currencyUSD", steps=None, desc=""):
             "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "value"}}
 
 rows = " or ".join([f'label_replace(vector({v}), "item", "{n}", "", "")' for n, v in FIXED]
-                   + [f'label_replace({NODE} * count(kube_node_info), "item", "EC2 노드 (t3.large × 노드 수)", "", "")'])
+                   + [f'label_replace({NODE} * count(kube_node_info), "item", "EC2 노드 (t3a.large × 노드 수)", "", "")'])
 
 def cw(i, title, q, price, x, y, desc):
     return {"id": i, "type": "stat", "title": title, "description": desc, "datasource": {"type": "datasource", "uid": "-- Mixed --"},
@@ -36,11 +36,11 @@ def cw(i, title, q, price, x, y, desc):
 
 panels = [
     stat(1, "지금 시간당 (추정)", HOURLY, 0, 6, steps=[{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 1.5}],
-         desc="고정 단가 합 + t3.large × 노드 수. 평소 2노드 ≈ $0.76"),
+         desc="고정 단가 합 + t3a.large × 노드 수. 평소 2노드 ≈ $0.74"),
     stat(2, "오늘 누적 (켜진 뒤부터)", TODAY, 6, 6, desc="Prometheus 는 켤 때 새로 시작 → 오늘 켜진 시각부터의 합"),
     stat(3, "오늘 예상 (18:00 까지 지금 속도)", FORECAST, 12, 6, steps=[{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 20}],
          desc="누적 + 지금 시간당 × 18:00 까지 남은 시간. $10 · $20 넘으면 메일"),
-    stat(4, "노드 수", "count(kube_node_info)", 18, 6, unit="none", desc="Cluster Autoscaler 2~4대 — 늘면 대당 시간당 +$0.104"),
+    stat(4, "노드 수", "count(kube_node_info)", 18, 6, unit="none", desc="Cluster Autoscaler 2~4대 — 늘면 대당 시간당 +$0.094"),
     {"id": 5, "type": "bargauge", "title": "항목별 시간당 (추정)", "datasource": PROM,
      "gridPos": {"h": 11, "w": 12, "x": 0, "y": 5},
      "targets": [{"refId": "A", "datasource": PROM, "expr": f"sort_desc({rows})", "instant": True, "legendFormat": "{{item}}"}],

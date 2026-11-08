@@ -17,7 +17,7 @@
    "id": 1,
    "type": "stat",
    "title": "지금 시간당 (추정)",
-   "description": "고정 단가 합 + t3.large × 노드 수. 평소 2노드 ≈ $0.76",
+   "description": "고정 단가 합 + t3a.large × 노드 수. 평소 2노드 ≈ $0.74",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -35,7 +35,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(0.5515 + 0.104 * count(kube_node_info))",
+     "expr": "(0.5515 + 0.0936 * count(kube_node_info))",
      "instant": true
     }
    ],
@@ -96,7 +96,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60",
+     "expr": "sum_over_time((0.5515 + 0.0936 * count(kube_node_info))[24h:1m]) / 60",
      "instant": true
     }
    ],
@@ -149,7 +149,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum_over_time((0.5515 + 0.104 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.104 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)",
+     "expr": "sum_over_time((0.5515 + 0.0936 * count(kube_node_info))[24h:1m]) / 60 + (0.5515 + 0.0936 * count(kube_node_info)) * clamp_min(9 - (hour() + minute() / 60), 0)",
      "instant": true
     }
    ],
@@ -192,7 +192,7 @@
    "id": 4,
    "type": "stat",
    "title": "노드 수",
-   "description": "Cluster Autoscaler 2~4대 — 늘면 대당 시간당 +$0.104",
+   "description": "Cluster Autoscaler 2~4대 — 늘면 대당 시간당 +$0.094",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -262,7 +262,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sort_desc(label_replace(vector(0.197), \"item\", \"Amazon MQ\", \"\", \"\") or label_replace(vector(0.1), \"item\", \"EKS 컨트롤 플레인\", \"\", \"\") or label_replace(vector(0.104), \"item\", \"NAT · 디스크 (EC2 기타)\", \"\", \"\") or label_replace(vector(0.048), \"item\", \"CloudWatch\", \"\", \"\") or label_replace(vector(0.028), \"item\", \"RDS\", \"\", \"\") or label_replace(vector(0.024), \"item\", \"ALB\", \"\", \"\") or label_replace(vector(0.018), \"item\", \"ElastiCache\", \"\", \"\") or label_replace(vector(0.013), \"item\", \"Secrets Manager\", \"\", \"\") or label_replace(vector(0.01), \"item\", \"공인 IPv4\", \"\", \"\") or label_replace(vector(0.0065), \"item\", \"bastion\", \"\", \"\") or label_replace(vector(0.003), \"item\", \"S3 · ECR · CloudTrail · 기타\", \"\", \"\") or label_replace(0.104 * count(kube_node_info), \"item\", \"EC2 노드 (t3.large × 노드 수)\", \"\", \"\"))",
+     "expr": "sort_desc(label_replace(vector(0.197), \"item\", \"Amazon MQ\", \"\", \"\") or label_replace(vector(0.1), \"item\", \"EKS 컨트롤 플레인\", \"\", \"\") or label_replace(vector(0.104), \"item\", \"NAT · 디스크 (EC2 기타)\", \"\", \"\") or label_replace(vector(0.048), \"item\", \"CloudWatch\", \"\", \"\") or label_replace(vector(0.028), \"item\", \"RDS\", \"\", \"\") or label_replace(vector(0.024), \"item\", \"ALB\", \"\", \"\") or label_replace(vector(0.018), \"item\", \"ElastiCache\", \"\", \"\") or label_replace(vector(0.013), \"item\", \"Secrets Manager\", \"\", \"\") or label_replace(vector(0.01), \"item\", \"공인 IPv4\", \"\", \"\") or label_replace(vector(0.0065), \"item\", \"bastion\", \"\", \"\") or label_replace(vector(0.003), \"item\", \"S3 · ECR · CloudTrail · 기타\", \"\", \"\") or label_replace(0.0936 * count(kube_node_info), \"item\", \"EC2 노드 (t3a.large × 노드 수)\", \"\", \"\"))",
      "instant": true,
      "legendFormat": "{{item}}"
     }
@@ -307,7 +307,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(0.5515 + 0.104 * count(kube_node_info))",
+     "expr": "(0.5515 + 0.0936 * count(kube_node_info))",
      "legendFormat": "시간당"
     }
    ],

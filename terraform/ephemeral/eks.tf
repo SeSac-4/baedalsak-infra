@@ -1,4 +1,4 @@
-# EKS (var.kubernetes_version) · 관리형 노드그룹 1개(t3.large, 2/2/4, AL2023) · access entry(API 모드)
+# EKS (var.kubernetes_version) · 관리형 노드그룹 1개(t3a.large, 2/2/4, AL2023) · access entry(API 모드)
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -31,8 +31,9 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.large"] # 2 vCPU · 8GiB · 파드 35개/노드 (앱 7개 × 768Mi 메모리 때문에 medium 대신 유지)
-      capacity_type  = "ON_DEMAND"
+      instance_types = ["t3a.large"] # AMD · 2 vCPU · 8GiB · t3.large 보다 10% 저렴(서울 $0.0936/h) · 파드 35개/노드 (앱 7개 × 768Mi 메모리 때문에 medium 대신 유지)
+      # t3a.large 는 서울 2a·2c 에만 있음 (2b·2d 없음, 11-08 확인) — AZS(지금 2a·2c)를 바꾸면 먼저 확인
+      capacity_type = "ON_DEMAND"
 
       min_size     = 2
       max_size     = 4
