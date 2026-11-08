@@ -47,6 +47,9 @@ env:
   CLUSTER_NAME: ${{ vars.CLUSTER_NAME || format('{0}-{1}', vars.PROJECT, vars.ENV_NAME) }}
   SECRET_PREFIX: ${{ vars.SECRET_PREFIX }}
   SSM_PREFIX: ${{ vars.SSM_PREFIX }}
+  # Argo CD 가 읽고 이미지 태그를 커밋할 브랜치 = 이 워크플로를 실행한 브랜치 (예약·이미지 빌드·변경 확인은 develop)
+  #   다른 브랜치로 수동 실행하면 그 브랜치 기준으로 검증 — develop 에는 커밋하지 않음 (scripts/aws/deploy.sh · image-tag.sh)
+  GITOPS_REVISION: ${{ github.ref_name }}
   AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
   TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
   # Terraform 변수 (같은 값을 TF_VAR_* 로)
