@@ -88,6 +88,19 @@ spec:
       ports:
         - { port: 8080, protocol: TCP }
 ---
+# ai (메뉴 사진 배경 제거, FastAPI) — gateway 만 (route ai-image). 메트릭 8081 은 아래 management 정책
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: ai-api, namespace: ${NS} }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: ai } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: gateway } }
+      ports:
+        - { port: 8080, protocol: TCP }
+---
 # 8081 actuator: Prometheus 수집 + smoke-test.sh 의 readiness 확인 (kubectl run 이 붙이는 라벨)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

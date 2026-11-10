@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FILE="helm/values/aws-image.yaml"
+FILE="${IMAGE_TAG_FILE:-helm/values/aws-image.yaml}" # AI 는 helm/values/aws-image-ai.yaml (images-ai.yml)
 BRANCH="${GITOPS_REVISION:-develop}"
 WORK="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gitops-image-tag-$$"
 MSG_PREFIX="chore(deploy): 이미지 태그"
@@ -52,7 +52,7 @@ case "${1:-}" in
 
   set)
     TAG="${2:?태그가 필요합니다}"
-    [[ "$TAG" =~ ^[0-9a-f]{7,40}$ ]] || { echo "태그 형식이 아닙니다 (서버 커밋 SHA): $TAG" >&2; exit 1; }
+    [[ "$TAG" =~ ^[0-9a-f]{7,40}$ ]] || { echo "태그 형식이 아닙니다 (커밋 SHA): $TAG" >&2; exit 1; }
     checkout
     CUR="$(read_tag < "$WORK/$FILE")"
     if [ "$CUR" = "$TAG" ]; then echo "이미 $TAG — 커밋 없음" >&2; exit 0; fi

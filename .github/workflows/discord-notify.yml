@@ -16,6 +16,7 @@ on:
       - AWS 상시 리소스 적용 (ECR·Secrets)
       - AWS 변경 미리보기 (plan)
       - 인프라 변경 배포 확인 (Argo CD)
+      - AI 이미지 빌드 (AI → ECR)
     types: [completed]
   workflow_dispatch:
 

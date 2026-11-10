@@ -62,8 +62,9 @@ locals {
 }
 
 # ---------- ECR <project>-<env>/<서비스> · 최신 7개만 보관 (롤백용 이전 버전 포함) ----------
+#   ai: 메뉴 사진 배경 제거(FastAPI, 레포 baedalsak-ai) — ECR 만 (Secret · DB 계정 없음), 빌드는 .github/workflows/images-ai.yml
 resource "aws_ecr_repository" "svc" {
-  for_each = toset(local.services)
+  for_each = toset(concat(local.services, ["ai"]))
   name     = "${local.name}/${each.key}"
 
   # push 할 때 기본 취약점 스캔 (무료) — ECR 경로에는 테스트·Trivy 가 없어서 최소한의 확인
