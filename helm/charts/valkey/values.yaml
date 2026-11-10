@@ -1,0 +1,45 @@
+# =============================================================================
+# 캐시 Valkey — 지금은 delivery(실시간 위치)만 씀. 세션 · 토큰은 ElastiCache (그쪽은 그대로)
+#   버전 = ElastiCache 와 같은 9.1 (terraform/ephemeral/data.tf)
+#   지워져도 다시 채워지는 값만 둠 → 디스크 저장 없음 · 복제 없음 · 가득 차면 오래된 키부터 지움 (allkeys-lru)
+#   ElastiCache 와 달리 TLS 없음 (클러스터 안 통신, NetworkPolicy 로 쓰는 서비스만 허용) — 비밀번호는 걺
+#
+#   서비스별 DB 번호 (SELECT n — 키 공간이 나뉘어 서로의 키를 보거나 FLUSHDB 로 지우지 않음)
+#     0 = delivery  (aws-services/delivery.yaml SPRING_DATA_REDIS_DATABASE)
+#     1 = store     (예약 — 쓰게 되면 aws-services/store.yaml 에 같은 설정 + scripts/aws/networkpolicy.yaml 허용 추가)
+#   메모리(maxmemory)는 DB 끼리 나눠 쓰지 않고 합쳐서 셈 — 한 서비스가 많이 쓰면 다른 서비스 키도 LRU 로 지워질 수 있음
+#   AWS 값(레지스트리 · 시크릿 키)은 helm/argocd/valkey-cache.yaml 이 채움
+# =============================================================================
+
+image:
+  registry: ""                  # <계정>.dkr.ecr.<리전>.amazonaws.com
+  namespace: ""                 # <PROJECT>-<ENV_NAME> → ECR <namespace>/valkey
+  # 이 값을 바꾸면 images-valkey.yml 이 같은 태그를 ECR 에 올림 (머지 후 이미지가 올라오기 전까지 파드는 이전 버전 유지)
+  tag: 9.1.3-alpine
+  pullPolicy: IfNotPresent
+
+port: 6379
+databases: 16                   # DB 번호 0~15 (위 표)
+maxmemory: 192mb                # 컨테이너 메모리(256Mi)보다 작게 — 연결 버퍼 · 단편화 여유
+
+# Secrets Manager → Secret (External Secrets Operator). 키 REDIS_CACHE_PASSWORD (쓰는 서비스와 같은 시크릿)
+externalSecret:
+  store: aws-secrets-manager
+  key: ""                       # <SECRET_PREFIX>/valkey-cache
+  refreshInterval: 1h
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits:   { memory: 256Mi }
+
+# 공식 이미지의 valkey 사용자 (uid 999 · gid 1000)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile: { type: RuntimeDefault }
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: ["ALL"] }

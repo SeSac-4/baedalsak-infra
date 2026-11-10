@@ -162,6 +162,11 @@ jobs:
         if: inputs.action == 'persistent' || inputs.action == 'up'
         run: terraform -chdir=terraform/persistent apply -input=false -auto-approve
 
+      # ECR 저장소가 생긴 직후 — 켤 때마다 확인하므로 deploy.sh 가 Valkey 이미지를 못 찾는 일이 없음 (있으면 건너뜀)
+      - name: Valkey 이미지 (Docker Hub → ECR)
+        if: inputs.action == 'persistent' || inputs.action == 'up'
+        run: ./scripts/aws/valkey-image.sh
+
       - name: 운영자 Cognito 사용자
         if: inputs.action == 'persistent' || inputs.action == 'up'
         env:

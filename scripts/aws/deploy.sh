@@ -3,9 +3,9 @@
 # 앱 6개 배포 (Argo CD, namespace = ENV_NAME) — 사용: deploy.sh <이미지 태그>
 #   <이미지 태그> = helm/values/aws-image.yaml 에 커밋된 태그 (이 스크립트는 기다릴 태그로만 씀 — 배포 기준은 Git)
 #   1) 네임스페이스 · readiness gate 라벨 · NetworkPolicy (파드보다 먼저)
-#   2) AppProject(helm/argocd/appproject.yaml) · ApplicationSet(applicationset.yaml) 에 Git 에 둘 수 없는 값을 채워 적용
-#      → Argo CD 가 6개 sync
-#   3) 6개가 그 태그로 Synced · Healthy 될 때까지 대기 (scripts/aws/argocd-wait.sh)
+#   2) AppProject(helm/argocd/appproject.yaml) · 캐시 Valkey(valkey-cache.yaml) · ApplicationSet(applicationset.yaml) 에
+#      Git 에 둘 수 없는 값을 채워 적용 → Argo CD 가 Valkey + 6개 sync
+#   3) 6개가 그 태그로 Synced · Healthy 될 때까지 대기 (scripts/aws/argocd-wait.sh), 이어서 Valkey 대기
 #   서비스별 값(gateway HPA 2~4·PDB·TGB, 연결 풀 5)은 helm/values/aws.yaml · aws-services/ 에 있음
 #   Argo CD 는 addons.sh 가 설치 (없으면 실패)
 # =============================================================================
@@ -54,7 +54,8 @@ declare -A V=(
   [IMAGE_BASE_URL]="$(ssm image_base_url)"
 )
 # 프로젝트(허용 범위)를 먼저 — ApplicationSet 이 만든 Application 이 프로젝트를 찾지 못해 실패하지 않게
-for f in appproject applicationset; do
+#   캐시 Valkey 는 앱보다 먼저 (delivery 는 Valkey 없이도 뜨지만 위치 기능이 비어 있게 됨)
+for f in appproject valkey-cache applicationset; do
   M="$(<"$ROOT/helm/argocd/$f.yaml")"
   for k in "${!V[@]}"; do M="${M//"__${k}__"/"${V[$k]}"}"; done # 따옴표: 값 안의 & 를 그대로
   if grep -q '"__[A-Z_]*__"' <<<"$M"; then echo "$f: 채우지 못한 값 $(grep -o '"__[A-Z_]*__"' <<<"$M" | sort -u | tr '\n' ' ')"; exit 1; fi
@@ -64,4 +65,17 @@ done
 # Argo CD 가 sync → 6개가 이 태그로 뜰 때까지 대기 (ExternalSecret 도 Healthy 판정에 포함)
 #   DEPLOY_REV(선택): 이 infra 커밋까지 sync 됐는지도 확인 — values·차트만 바뀌어 태그가 같을 때 (gitops-check 워크플로)
 "$ROOT/scripts/aws/argocd-wait.sh" "$TAG" "${DEPLOY_REV:-}"
+
+# 캐시 Valkey — 이미지 태그가 앱과 달라 argocd-wait.sh 밖에서 Synced · Healthy 만 확인
+#   떠 있지 않아도 배포는 실패시키지 않음: delivery 는 캐시 없이도 주문 · 배달 API 가 그대로 동작하고 위치만 비어 있음
+#   (이미지는 aws-stack 의 persistent 단계가 scripts/aws/valkey-image.sh 로 미리 올림)
+deadline=$((SECONDS + 180))
+until [ "$(kubectl -n argocd get application valkey-cache -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)" = "Synced Healthy" ]; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "::warning::valkey-cache 가 준비되지 않음 ($(kubectl -n argocd get application valkey-cache -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null || echo 없음)) — 배달 위치 기능만 비활성. ECR <NAME>/valkey 이미지 확인: scripts/aws/valkey-image.sh"
+    kubectl -n "$NS" get pods -l app.kubernetes.io/name=valkey-cache 2>/dev/null || true
+    break
+  fi
+  sleep 10
+done
 kubectl -n "$NS" get pods -o wide

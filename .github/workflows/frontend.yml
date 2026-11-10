@@ -2,7 +2,7 @@
 # 프론트 배포 (클라이언트 레포 → S3 → CloudFront)
 #   실행: 클라이언트 레포 develop push → notify-infra.yml 이 repository_dispatch(client-updated, sha) 로 호출
 #         또는 수동 실행
-#   npm ci → npm run build(dist/, 토스 클라이언트 키는 SSM <SSM_PREFIX>/toss_client_key) → s3 sync 2회
+#   npm ci → npm run build(dist/, 토스 클라이언트 키 · 카카오맵 JS 키는 SSM <SSM_PREFIX>/toss_client_key · kakao_map_key) → s3 sync 2회
 #     ① assets 등 index.html 외 파일: 1년 캐시(immutable) — 이전 파일은 지우지 않음(열려 있는 화면이 옛 파일을 요청할 수 있음)
 #     ② index.html: no-cache — 항상 최신 assets 를 가리킴
 #   CloudFront 가 켜져 있으면 /index.html 무효화 (꺼져 있으면 다음 켜기 때 새 배포가 S3 를 바로 읽음)
@@ -80,6 +80,10 @@ jobs:
           VITE_TOSS_CLIENT_KEY=$(aws ssm get-parameter --name "$SSM_PREFIX/toss_client_key" --query Parameter.Value --output text)
           : "${VITE_TOSS_CLIENT_KEY:?SSM $SSM_PREFIX/toss_client_key 가 없습니다 (persistent apply 필요)}"
           export VITE_TOSS_CLIENT_KEY
+          # 카카오맵 JS 키 — 없거나 CHANGE_ME 면 지도만 안 뜨고 빌드는 계속 (주문 · 결제 화면과 무관)
+          VITE_KAKAO_MAP_KEY=$(aws ssm get-parameter --name "$SSM_PREFIX/kakao_map_key" --query Parameter.Value --output text 2>/dev/null || true)
+          case "$VITE_KAKAO_MAP_KEY" in ""|CHANGE_ME*) echo "::warning::SSM $SSM_PREFIX/kakao_map_key 가 비어 있어 지도가 표시되지 않습니다"; VITE_KAKAO_MAP_KEY="" ;; esac
+          export VITE_KAKAO_MAP_KEY
           npm ci
           npm run build
 

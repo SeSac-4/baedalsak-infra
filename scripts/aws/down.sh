@@ -14,6 +14,8 @@ echo "== 앱 삭제 (Argo CD)"
 # ApplicationSet 을 지우면 Application 6개가 지워지고, finalizer 로 앱 리소스(gateway TGB 포함)도 함께 삭제
 #   Argo CD 를 먼저 지우면 finalizer 를 처리할 주체가 없어 삭제가 멈춤 → Argo CD 는 맨 뒤 애드온 단계에서 삭제
 kubectl -n argocd delete applicationset baedalsak --ignore-not-found --wait --timeout=5m 2>/dev/null || true
+# 캐시 Valkey 는 ApplicationSet 밖의 Application (helm/argocd/valkey-cache.yaml) — 따로 지워야 아래 0개 대기가 끝남
+kubectl -n argocd delete application valkey-cache --ignore-not-found --wait --timeout=5m 2>/dev/null || true
 for _ in $(seq 1 30); do
   n="$(kubectl -n argocd get applications --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   [ "$n" = "0" ] && break
