@@ -31,7 +31,13 @@ assert notify.chunks("") == []
 ARN = "arn:aws:sns:ap-northeast-2:1:baedalsak-prod-"
 assert notify.channel(ARN + "alerts", "[baedalsak-prod] AWS up FAILED") == "incident"
 assert notify.channel(ARN + "alerts", "ALARM: \"baedalsak-prod-rds-cpu\" in Asia Pacific (Seoul)") == "incident"
-assert notify.channel(ARN + "alerts", "[baedalsak-prod] ALERT - 1 alert(s)") == "cost"  # Grafana
+G = "[baedalsak-prod] ALERT - 1 alert(s)"  # Grafana 제목 · 본문 "■ <규칙>" 줄로 구분
+FOOT = "\n▶ 비용 대시보드 : https://x/d/baedalsak-cost"  # 모든 Grafana 본문 꼬리에 "비용" 이 있음
+assert notify.channel(ARN + "alerts", G, "[알림 발생]\n■ 오늘 예상 비용 10달러 초과\n  내용 : x" + FOOT) == "cost"
+assert notify.channel(ARN + "alerts", G, "■ 앱 ERROR 로그 급증  (order)" + FOOT) == "incident"
+assert notify.channel(ARN + "alerts", G, "■ Argo CD 앱 Healthy 아님  (order · Degraded)" + FOOT) == "incident"
+assert notify.channel(ARN + "alerts", G.replace("ALERT", "RESOLVED"), "■ MQ 메시지 처리 실패 (DLQ 가능)" + FOOT) == "incident"
+assert notify.channel(ARN + "alerts", G, FOOT) == "incident"  # 규칙 줄이 없으면 장애 쪽으로 (놓치지 않게)
 assert notify.channel(ARN + "alerts", "AWS Budgets: baedalsak-prod-daily has exceeded your alert threshold") == "cost"
 assert notify.channel(ARN + "budget", "") == "cost"
 print("discord ok")

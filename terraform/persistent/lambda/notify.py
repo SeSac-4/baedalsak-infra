@@ -1,5 +1,5 @@
 # Lambda ⑤ — SNS alerts·budget 메시지를 Discord 웹훅으로 전달 (채널 2개)
-#   incident : CloudWatch 알람 · 켜기/끄기 실패      cost : Budgets · Grafana 비용 추정
+#   incident : CloudWatch 알람 · 켜기/끄기 실패 · Grafana(ERROR 로그 · MQ 실패 · Argo CD)      cost : Budgets · Grafana 비용 추정
 #   웹훅은 Secrets Manager <SECRET_PREFIX>/discord-webhook = {"incident": "<URL>", "cost": "<URL>"} (URL 하나만 넣으면 둘 다 그 채널)
 import json
 import os
@@ -37,10 +37,14 @@ def webhook(kind):
     return json.loads(value)[kind] if value.startswith("{") else value
 
 
-def channel(topic_arn, subject):
-    # shortcut: Grafana 알림 규칙이 지금 전부 비용(그룹 cost)이라 Grafana 제목 형식이면 cost — 비용 외 Grafana 규칙을 추가하면 제목으로 구분하게 바꿀 것
-    grafana = " ALERT - " in subject or " RESOLVED - " in subject
-    return "cost" if topic_arn.endswith("-budget") or "Budget" in subject or grafana else "incident"
+def channel(topic_arn, subject, message=""):
+    if topic_arn.endswith("-budget") or "Budget" in subject:
+        return "cost"
+    if " ALERT - " in subject or " RESOLVED - " in subject:  # Grafana — 본문 "■ <규칙 이름>" 줄 (helm/addons/kube-prometheus-stack.yaml 템플릿)
+        # 비용 규칙(제목에 "비용")만 cost, ERROR 로그 · MQ 실패 · Argo CD 등은 incident. 규칙 이름을 바꾸면 여기도 확인
+        rules = [ln for ln in message.splitlines() if ln.lstrip().startswith("■")]
+        return "cost" if rules and all("비용" in ln for ln in rules) else "incident"
+    return "incident"
 
 
 def send(text, kind="incident"):
@@ -55,4 +59,4 @@ def handler(event, _context):
     for record in event["Records"]:
         sns = record["Sns"]
         subject = sns.get("Subject") or ""
-        send(f"**{subject or 'baedalsak 알림'}**\n{_text(sns['Message'])}", channel(sns.get("TopicArn", ""), subject))
+        send(f"**{subject or 'baedalsak 알림'}**\n{_text(sns['Message'])}", channel(sns.get("TopicArn", ""), subject, sns["Message"]))
