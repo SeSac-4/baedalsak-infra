@@ -2,6 +2,7 @@
 # =============================================================================
 # EKS 애드온 설치 (helm) — terraform ephemeral apply 직후, 앱 배포 전에 실행
 #   LBC(replica 1) · Cluster Autoscaler · ESO(controller만) · metrics-server · Loki · Fluent Bit(→ Loki) · Prometheus·Grafana(monitoring)
+#   · Argo CD(argocd, 앱 6개 배포)
 #   권한은 Terraform 이 만든 Pod Identity 연결을 그대로 사용 (SA 이름이 같아야 함)
 # 필요: aws cli, kubectl(kubeconfig 설정 완료), helm
 # =============================================================================
@@ -20,6 +21,7 @@ helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
 helm repo add grafana-community https://grafana-community.github.io/helm-charts >/dev/null # Tempo 차트 이전처 (grafana/tempo 는 지원 종료)
+helm repo add argo https://argoproj.github.io/argo-helm >/dev/null
 helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
@@ -154,8 +156,9 @@ spec:
         key: ${SECRET_PREFIX}/ops-cognito-grafana
 EOF
 kubectl -n monitoring wait --for=condition=Ready externalsecret/grafana-admin externalsecret/grafana-oauth --timeout=3m
-# 직접 관리하는 대시보드 (비용 추정 · Spring Boot Observability 수정본) — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음
-for d in baedalsak-cost spring-boot-observability; do
+# 직접 관리하는 대시보드 (비용 추정 · Spring Boot Observability 수정본 · Argo CD 공식 대시보드 v3.5.5 examples/dashboard.json)
+#   — Grafana sidecar 가 grafana_dashboard=1 ConfigMap 을 읽음
+for d in baedalsak-cost spring-boot-observability argocd; do
   kubectl -n monitoring create configmap "dashboard-$d" \
     --from-file="$(dirname "$0")/../../helm/addons/dashboards/$d.json" --dry-run=client -o yaml \
     | kubectl label --local -f - grafana_dashboard=1 -o yaml | kubectl apply -f -
@@ -210,6 +213,117 @@ $(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; d
         - { port: 3000, protocol: TCP }
 EOF
 
+# 앱 6개 GitOps 배포 — ApplicationSet 은 deploy.sh 가 적용 (db-init · Cognito 정리 뒤)
+#   메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm show values 로 키를 먼저 확인
+echo "== Argo CD (argocd) — 단일 구성, UI 는 port-forward 전용 (scripts/aws/argocd-ui.sh)"
+# 앱 화면의 Grafana 링크 (딥링크) — 도메인이 들어가 Git 이 아니라 SSM grafana_root_url(https://<도메인>/grafana/)에서 채움
+#   서비스 대시보드 = Spring Boot Observability(uid dLsDQIUnzb, 변수 app_name) · Argo CD 대시보드(uid LCAgc9rWz)
+GRAFANA_URL="$(ssm grafana_root_url)"
+ARGOCD_LINKS="$(mktemp)"
+cat > "$ARGOCD_LINKS" <<LINKS
+configs:
+  cm:
+    application.links: |
+      - url: ${GRAFANA_URL}d/dLsDQIUnzb?var-app_name={{.metadata.name}}
+        title: Grafana 서비스 대시보드
+        description: 지표 · 로그 (운영자 로그인)
+      - url: ${GRAFANA_URL}d/LCAgc9rWz
+        title: Grafana Argo CD 대시보드
+LINKS
+# 개발팀 읽기 전용 계정 dev 의 비밀번호 (bcrypt, terraform persistent 가 만듦) — 없으면 dev 로그인만 안 되고 설치는 계속
+DEV_HASH="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${SECRET_PREFIX}/argocd-dev" \
+  --query SecretString --output text 2>/dev/null | jq -r '.bcrypt // empty' || true)"
+if [ -n "$DEV_HASH" ]; then
+  printf '  secret:\n    extra:\n      accounts.dev.password: "%s"\n' "$DEV_HASH" >> "$ARGOCD_LINKS"
+else
+  echo "경고: ${SECRET_PREFIX}/argocd-dev 없음 — Argo CD dev 계정 로그인 불가 (terraform persistent apply 필요)"
+fi
+helm upgrade --install argocd argo/argo-cd \
+  -n argocd --create-namespace --version 10.10.5 \
+  -f "$(dirname "$0")/../../helm/argocd/values.yaml" \
+  -f "$ARGOCD_LINKS" \
+  --wait --timeout 10m
+rm -f "$ARGOCD_LINKS"
+
+# argocd 네임스페이스 ingress 기본 차단 + 필요한 연결만 허용 — Grafana 와 같은 수준 (차트 정책은 끔: helm/argocd/values.yaml)
+#   포트는 숫자로 — EKS VPC CNI 네트워크 정책은 이름 붙은 포트를 쓰면 Service 에도 같은 이름이어야 하는데 차트 Service 이름이 다름
+#   repo-server 8081 ← server · controller · applicationset / redis 6379 ← server · repo-server · controller
+#   메트릭 controller 8082 · server 8083 · repo-server 8084 ← monitoring(Prometheus)
+#   server 8080(UI·API)은 아무 데서도 허용 안 함 → 다른 파드가 로그인 API 에 직접 못 들어옴. UI 는 port-forward(정책 대상 아님)
+#   applicationset-controller 는 들어오는 연결이 필요 없어 기본 차단만 받음
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-default-deny, namespace: argocd }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-repo-server, namespace: argocd }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: argocd-repo-server } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-application-controller } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-applicationset-controller } }
+      ports:
+        - { port: 8081, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-redis, namespace: argocd }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: argocd-redis } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-repo-server } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: argocd-application-controller } }
+      ports:
+        - { port: 6379, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-metrics, namespace: argocd }
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [argocd-application-controller, argocd-server, argocd-repo-server] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports:
+        - { port: 8082, protocol: TCP }
+        - { port: 8083, protocol: TCP }
+        - { port: 8084, protocol: TCP }
+EOF
+
+# 개발팀(EKS access entry 그룹 argocd-ui-portforward, terraform/ephemeral/eks.tf) — argocd 에선 port-forward 만 추가 허용
+#   파드 조회는 클러스터 View 로 이미 있음. Secret(admin 비밀번호 등) 읽기 · exec · 수정은 주지 않음
+#   shortcut: 파드 이름이 매번 바뀌어 resourceNames 로 argocd-server 만 지정 못 함 → argocd 의 다른 파드도 port-forward 가능
+#             (redis 는 비밀번호 필요, 메트릭은 조회용). 막아야 하면 UI 를 ALB + Cognito 로 노출하는 방식으로 전환
+kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: argocd-ui-portforward, namespace: argocd }
+rules:
+  - { apiGroups: [""], resources: [pods/portforward], verbs: [create] }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: argocd-ui-portforward, namespace: argocd }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: argocd-ui-portforward }
+subjects:
+  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: argocd-ui-portforward }
+EOF
+
 kubectl get pods -n kube-system
 kubectl get pods -n external-secrets
 kubectl get pods -n monitoring
+kubectl get pods -n argocd

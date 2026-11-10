@@ -18,14 +18,17 @@ terraform/
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
       edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
       alarms.tf   CloudWatch 알람 → SNS → 메일
-scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · smoke-test.sh · down.sh  (워크플로가 호출)
+scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh · argocd-wait.sh · image-tag.sh · smoke-test.sh · rollback.sh · down.sh  (워크플로가 호출)
+                 argocd-ui.sh (Argo CD UI port-forward, 팀원 PC)
+helm/argocd/     Argo CD values · 앱 6개 ApplicationSet (아래 "앱 배포 — Argo CD")
 .github/workflows/
 ├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:30 + 수동)
 ├── aws-down.yml        AWS 끄기 (Scheduler 평일 18:00 · 수동. 예산 초과 자동 끄기는 꺼 둠)
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
-├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 켜져 있으면 배포
+├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 태그 커밋 → 켜져 있으면 Argo CD 배포 확인
+├── gitops-check.yml    인프라 변경 배포 확인 (helm 변경 머지 → 켜져 있으면 sync 대기 + smoke test)
 └── frontend.yml        프론트 배포 (클라이언트 레포 CLIENT_REPO → npm build → S3 → CloudFront 무효화)
 ```
 
@@ -39,7 +42,7 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
 | `terraform/*` | `variable` → `TF_VAR_*` (backend 의 bucket·region 은 `terraform init -backend-config=...`) |
 | `scripts/aws/*.sh` | `scripts/aws/env.sh` 가 필수 값 검사(`: "${VAR:?}"`) 후 이름을 만듦 |
 | `.github/workflows/*.yml` | 레포 Variables `vars.*` → `env` |
-| `helm/values/aws.yaml` | 비워 두고 `deploy.sh` 가 `--set` |
+| `helm/values/aws.yaml` | Git 에 둘 수 없는 값(계정 번호 포함·매일 바뀜)은 비워 두고 `deploy.sh` 가 ApplicationSet 에 채움 |
 
 이름 규칙 (Terraform·스크립트·워크플로 공통): 리소스 `<PROJECT>-<ENV_NAME>` · Secrets Manager `<PROJECT>/<ENV_NAME>/*` ·
 SSM `/<PROJECT>/<ENV_NAME>/*` · Loki 버킷 `<PROJECT>-<ENV_NAME>-loki-<계정>` · Tempo 버킷 `<PROJECT>-<ENV_NAME>-tempo-<계정>` · 이미지 버킷 `<PROJECT>-<ENV_NAME>-images-<계정>`(store presigned 업로드, 조회 `https://<DOMAIN_NAME>/images/<키>`) · ECR `<PROJECT>-<ENV_NAME>/<서비스>` · 앱 namespace `<ENV_NAME>`.
@@ -122,7 +125,7 @@ terraform -chdir=terraform/persistent plan
 
 | 시각 (KST) | 워크플로 | 하는 일 |
 |---|---|---|
-| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 마지막으로 빌드된 이미지(SSM `<SSM_PREFIX>/image_tag`, 앱 이미지 빌드가 기록)를 배포. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
+| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 `helm/values/aws-image.yaml`(develop)의 태그를 배포 (입력하면 그 태그를 이 파일에 커밋한 뒤 배포). Argo CD 설치 → ApplicationSet 적용 → 6개 Synced·Healthy 대기. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
 | 18:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
@@ -156,6 +159,57 @@ aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsa
   --secret-string "$(jq -cn --arg p "$SP" '{SEED_PASSWORD:$p}')" --query VersionId --output text; unset SP
 ```
 
+### 앱 배포 — Argo CD (GitOps)
+
+앱 6개는 GitHub Actions 가 `helm upgrade` 하지 않고 **클러스터 안의 Argo CD 가 Git 을 보고 배포**합니다 (설계서 '인프라 구성 상세' 탭 Argo CD 항목: values 의 image.tag 커밋 감지 → sync).
+배포 태그의 기준은 `helm/values/aws-image.yaml` 이고, 레포가 PUBLIC 이라 계정 번호가 들어가거나 매일 바뀌는 값(ECR 주소·TG ARN·MQ 주소 등)은 켜기 때 `deploy.sh` 가 ApplicationSet 에 채웁니다.
+
+| 하고 싶은 것 | 방법 |
+|---|---|
+| 배포된 태그 확인 | `helm/values/aws-image.yaml` (develop) 또는 `kubectl -n argocd get applications` |
+| 특정 태그로 배포 | 클러스터가 켜져 있을 때 `aws-image.yaml` 의 태그를 바꿔 develop 에 커밋 (또는 AWS 켜기에 image_tag 입력) |
+| 직전 태그로 되돌리기 | 해당 태그 커밋을 `git revert` 후 develop push (smoke test 실패 시 워크플로가 자동으로 함) |
+| UI 보기 | `./scripts/aws/argocd-ui.sh` → `http://127.0.0.1:8090`, 인프라는 admin(매일 바뀜) · 개발팀은 읽기 전용 dev(앱 조회·로그만, Secrets Manager `<SECRET_PREFIX>/argocd-dev`), 비밀번호는 스크립트가 출력 |
+| 상태 확인 | `kubectl -n argocd get applications` — `Synced` · `Healthy` 면 정상 |
+| 이상 알림 | Grafana 알림 "Argo CD 앱 Healthy 아님" — 15분 넘게 Healthy 가 아니면 Discord(incident). OutOfSync 는 알리지 않음 (selfHeal 꺼짐) |
+| 지표 | Grafana 배달싹 폴더 "ArgoCD" 대시보드, 또는 Argo CD 앱 화면의 "Grafana 서비스 대시보드" 링크 |
+
+- `helm list -n prod` · `helm rollback` 은 더 이상 쓰지 않습니다 (Argo CD 는 Helm 을 렌더링에만 씀 → helm release 없음).
+- **develop 에 bot 커밋이 들어옵니다** — 서버 이미지 빌드가 성공할 때마다 github-actions[bot] 이 `helm/values/aws-image.yaml` 태그를 커밋합니다 (서버 머지 수만큼, 많으면 하루 10번 이상). develop 에 직접 push 하기 전에 `git pull --rebase origin develop` 하세요 (안 하면 non-fast-forward 로 거절). `aws-image.yaml` 은 손으로 고치지 않습니다.
+- **selfHeal 은 꺼 둠** — 부하 테스트 중 `kubectl scale`·`edit` 이 되돌려지지 않습니다. 대신 Git 과 다르면 `OutOfSync` 로 보이고, 다음 Git 커밋이 sync 될 때 Git 값으로 돌아갑니다. 부하 테스트가 끝나면 `helm/argocd/applicationset.yaml` 에서 켭니다.
+- NetworkPolicy 는 Argo CD 관리 밖입니다 (`deploy.sh` 가 ApplicationSet 보다 먼저 적용).
+- `argocd` 네임스페이스도 ingress 기본 차단입니다 (`addons.sh`) — 다른 파드는 Argo CD server 에 직접 못 들어오고, Prometheus(monitoring)만 메트릭을 수집합니다. UI 는 port-forward 라 영향 없습니다.
+- 앱 6개는 전용 프로젝트 `baedalsak`(`helm/argocd/appproject.yaml`)로만 배포됩니다 — 이 레포 · `prod` · 차트가 만드는 kind 만 허용. 차트에 새 kind 를 추가하면 프로젝트 허용 목록에도 추가하세요 (빠지면 sync 가 "not permitted in project" 로 실패).
+- **18:00 · 09:30 전후에는 helm 변경 push 를 피하세요** — 켜기·끄기·이미지 배포·변경 확인이 같은 동시 실행 그룹(`aws-stack`)이라, 대기 중인 끄기·켜기가 새 실행에 밀려 취소될 수 있습니다. 취소되면 Actions 에서 AWS 끄기(켜기)를 수동 실행하세요.
+- sync 가 실패하면 Argo CD 가 약 5분 동안 5번 다시 시도합니다 (켜기 직후 ESO·webhook 준비 전 실패 대비).
+- `helm/` 아래 values·차트(또는 `applicationset.yaml`·`appproject.yaml`·`networkpolicy.yaml`)를 바꿔 develop 에 머지하면 Argo CD 가 바로 반영하고, **인프라 변경 배포 확인 (Argo CD)** 워크플로가 켜져 있을 때 smoke test 를 돌립니다. 실패해도 자동으로 되돌리지 않고 Discord 로 알리므로, 직접 고치거나 그 커밋을 revert 하세요.
+
+### infra 변경 배포 확인이 실패했을 때
+
+Discord #alert-incident 에 **인프라 변경 배포 확인 (Argo CD) failure** 가 오면, 그 변경은 **이미 AWS 에 반영된 상태**입니다 (Argo CD 가 머지 즉시 반영, 워크플로는 반영 뒤 검사). 자동으로 되돌리지 않으므로 사람이 판단합니다.
+
+1. 알림의 실행 링크 → `deploy apps` · `smoke test` · `debug on failure` 로그에서 원인 확인 (`kubectl -n argocd get applications`, `./scripts/aws/argocd-ui.sh`)
+2. 원인이 **그 변경**이면 되돌림 → Argo CD 가 이전 값으로 맞추고 같은 워크플로가 다시 smoke test
+   - **develop 에 직접 push 한 커밋**: `git pull --rebase origin develop` → `git revert <커밋>` → `git push origin develop` (여러 커밋이면 `git revert <첫 커밋>^..<마지막 커밋>`)
+   - **PR 로 머지한 커밋**: 머지된 PR 화면의 **Revert** 버튼 → 생긴 PR 머지 (또는 `git revert -m 1 <머지 커밋>`)
+   - 원인이 분명하고 바로 고칠 수 있으면 고친 커밋을 올려도 됨 (fix forward)
+   - 같은 브랜치를 다시 머지해도 되돌린 내용은 다시 들어가지 않음 → revert 커밋을 다시 revert 하거나 새 커밋으로 올림
+3. 원인이 **변경과 무관**하면 (AWS 일시 장애 · 서버 이미지 등) — 되돌리지 않고 원인 쪽을 처리한 뒤 이 워크플로를 수동 실행 (Run workflow) 해 다시 확인
+4. 클러스터가 꺼져 있을 때 머지된 변경은 다음 AWS 켜기의 smoke test 에서 드러남 (켜기 실패 알림)
+
+### 부하 테스트 때 (Argo CD 전환 후)
+
+설정은 `kubectl` 이 아니라 **Git 커밋 하나**로 바꾸고, 끝나면 그 커밋을 revert 합니다 (커밋 SHA = 테스트 조건 기록).
+
+1. **배포 동결** — Actions 에서 **앱 이미지 빌드** 워크플로를 Disable (또는 서버 팀에 머지 보류 공유). 테스트 중 이미지가 바뀌면 결과가 섞이고, 재배포로 이전·새 파드가 겹치면 DB 연결 수가 RDS 한도(약 80)를 넘을 수 있음 (아래 3)
+   - Argo CD sync window(배포 금지 시간)는 쓰지 않음 — 태그 커밋은 되는데 sync 만 막혀 대기 시간 초과 → 이미지 태그 자동 되돌리기가 돎
+2. **테스트 설정 커밋** (develop) — 커밋 후 **인프라 변경 배포 확인 (Argo CD)** 워크플로가 smoke test 로 확인
+   - `helm/values/aws.yaml` `resources.requests.cpu` 100m → 250m (HPA 는 requests 대비 CPU % 로 판단 — 100m 이면 너무 일찍 늘어남)
+   - `helm/values/aws-services/order.yaml` · `payment.yaml` 에 `autoscaling: { enabled: true, minReplicas: 1, maxReplicas: 3 }` (+ 필요하면 `targetCPUUtilizationPercentage`)
+3. **DB 연결 수 확인** — 연결 풀 5 는 서비스당 파드 1개 기준. order·payment 가 3개까지 늘면 평소 45개(9 파드 × 5), 재배포가 겹치면 약 90개 → 1번 동결로 막음
+4. **테스트 중 미세 조정** — selfHeal 이 꺼져 있어 `kubectl scale`·`edit` 가능 (`OutOfSync` 로 표시, 다음 sync 때 Git 값으로 돌아감). 계속 쓸 값은 Git 에 커밋
+5. **끝나면** — 2번 커밋 revert → 앱 이미지 빌드 워크플로 Enable → (결정 시) `helm/argocd/applicationset.yaml` 의 `selfHeal: true`
+
 ### 프론트 배포 (baedalsak-client develop → S3)
 
 - **프론트 배포** 워크플로: 클라이언트 레포 체크아웃 → `npm ci && npm run build` → `dist/` 를 S3 에 2회 업로드(assets 1년 캐시 → `index.html` no-cache) → 켜져 있으면 `/index.html` 무효화
@@ -169,8 +223,9 @@ aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsa
 baedalsak-server develop push(머지)
   └ notify-infra.yml ── repository_dispatch(server-updated, sha) ──▶ baedalsak-infra
        └ 앱 이미지 빌드 (images.yml): sha 검증(develop 에 있는 커밋인지) → 6개 빌드 → ECR <PROJECT>-<ENV_NAME>/<서비스>:<sha 7자리>
-            └ deploy (aws-stack action=deploy): 클러스터 켜져 있음 → deploy.sh + smoke test
-                                                  꺼져 있음   → 건너뜀, 다음 AWS 켜기(09:30)가 이 이미지를 배포
+            └ deploy (aws-stack action=deploy): 태그를 helm/values/aws-image.yaml 에 커밋 (develop push)
+                 클러스터 켜져 있음 → Argo CD 가 커밋 감지 → sync 대기(deploy.sh) → smoke test → 실패 시 태그 커밋 git revert
+                 꺼져 있음         → 커밋만, 다음 AWS 켜기(09:30)가 이 태그를 배포
 ```
 
 - 6개 중 하나라도 빌드가 실패하면 배포하지 않습니다.

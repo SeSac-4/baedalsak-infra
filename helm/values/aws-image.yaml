@@ -1,0 +1,5 @@
+# 앱 6개 이미지 태그 (서버 레포 커밋 7자리) — Argo CD 가 이 파일의 변경을 감지해 배포
+#   "앱 이미지 빌드" 워크플로가 빌드 성공 시 커밋함. 손으로 고치지 않음
+#   되돌리기: 해당 커밋을 git revert (smoke test 실패 시 워크플로가 자동으로 함 — scripts/aws/rollback.sh)
+image:
+  tag: "eed53e4"

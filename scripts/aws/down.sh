@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # 끄기 준비 — terraform destroy 전에 실행
-#   앱(helm uninstall) · Grafana TGB 삭제 → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki) 삭제 → 애드온 삭제
+#   앱(Argo CD ApplicationSet 삭제) · Grafana TGB 삭제 → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki) 삭제
+#   → Argo CD 삭제 → 애드온 삭제
 #   LBC 가 TGB 에 finalizer 를 붙이므로 LBC 를 먼저 지우면 TGB 삭제가 멈춤
 # =============================================================================
 set -uo pipefail
@@ -9,7 +10,16 @@ set -uo pipefail
 # shellcheck source=scripts/aws/env.sh
 source "$(dirname "$0")/env.sh"
 
-echo "== 앱 삭제"
+echo "== 앱 삭제 (Argo CD)"
+# ApplicationSet 을 지우면 Application 6개가 지워지고, finalizer 로 앱 리소스(gateway TGB 포함)도 함께 삭제
+#   Argo CD 를 먼저 지우면 finalizer 를 처리할 주체가 없어 삭제가 멈춤 → Argo CD 는 맨 뒤 애드온 단계에서 삭제
+kubectl -n argocd delete applicationset baedalsak --ignore-not-found --wait --timeout=5m 2>/dev/null || true
+for _ in $(seq 1 30); do
+  n="$(kubectl -n argocd get applications --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  [ "$n" = "0" ] && break
+  echo "남은 Application: $n"; sleep 10
+done
+# helm 으로 올라간 앱이 남아 있으면 (Argo CD 전환 전에 켠 클러스터) 함께 정리
 for svc in gateway member store order payment delivery; do
   helm uninstall "$svc" -n "$NS" --wait --timeout 5m 2>/dev/null || true
 done
@@ -33,6 +43,10 @@ helm uninstall loki -n monitoring --wait --timeout 5m 2>/dev/null || true
 helm uninstall tempo -n monitoring --wait --timeout 5m 2>/dev/null || true
 kubectl delete namespace monitoring --wait --timeout=5m 2>/dev/null || true
 kubectl delete clustersecretstore aws-secrets-manager aws-parameter-store --ignore-not-found 2>/dev/null || true
+
+echo "== Argo CD 삭제"
+helm uninstall argocd -n argocd --wait --timeout 5m 2>/dev/null || true
+kubectl delete namespace argocd --wait --timeout=5m 2>/dev/null || true
 
 echo "== 애드온 삭제"
 helm uninstall aws-for-fluent-bit -n kube-system 2>/dev/null || true
