@@ -1,15 +1,17 @@
-# ---------- 운영자 전용 Cognito 풀 (Grafana SSO) — 고객 풀(cognito.tf)과 완전히 분리 ----------
-#   로그인은 이메일, 계정은 관리자만 생성 (scripts/aws/ops-users.sh) · 권한은 그룹 → Grafana 역할
-#   ALB 가 먼저 인증(앱 클라이언트 alb)하고 Grafana 도 같은 풀로 로그인(앱 클라이언트 grafana) → 사용자는 Hosted UI 에서 한 번만 로그인
+# ---------- 운영자 전용 Cognito 풀 (Grafana · Argo CD SSO) — 고객 풀(cognito.tf)과 완전히 분리 ----------
+#   로그인은 이메일, 계정은 관리자만 생성 (scripts/aws/ops-users.sh) · 권한은 그룹 → Grafana 역할 · Argo CD 역할(helm/argocd/values.yaml rbac)
+#   ALB 가 먼저 인증(앱 클라이언트 alb)하고 Grafana · Argo CD 도 같은 풀로 로그인(앱 클라이언트 grafana · argocd) → 사용자는 Hosted UI 에서 한 번만 로그인
 #   메일은 Cognito 기본 발송 — 초대 메일(임시 비밀번호)만 나감
 locals {
   ops_domain_prefix = coalesce(var.ops_cognito_domain_prefix, "${var.project}-ops")
   ops_hosted_ui     = "https://${local.ops_domain_prefix}.auth.${var.region}.amazoncognito.com"
   ops_groups        = ["grafana-admin", "grafana-viewer"]
   grafana_login_url = "https://${var.domain_name}/grafana/login"
+  argocd_url        = "https://${var.domain_name}/argocd"
   ops_clients = {
     alb     = { callback = ["https://${var.domain_name}/oauth2/idpresponse"] }
     grafana = { callback = ["${local.grafana_login_url}/generic_oauth"] }
+    argocd  = { callback = ["${local.argocd_url}/auth/callback"] }
   }
 }
 
@@ -86,7 +88,7 @@ resource "aws_cognito_user_pool_client" "ops" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   supported_identity_providers         = ["COGNITO"]
   callback_urls                        = each.value.callback
-  logout_urls                          = [local.grafana_login_url]
+  logout_urls                          = [local.grafana_login_url, local.argocd_url]
 
   explicit_auth_flows           = ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
@@ -107,6 +109,17 @@ resource "aws_secretsmanager_secret_version" "ops_cognito_grafana" {
   })
 }
 
+# Argo CD 앱 클라이언트 비밀값 — addons.sh 가 읽어 argocd-secret(oidc.cognito.clientSecret)에 넣음 (dev 계정 비밀번호와 같은 방식)
+resource "aws_secretsmanager_secret" "ops_cognito_argocd" {
+  name                    = "${local.secret_prefix}/ops-cognito-argocd"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "ops_cognito_argocd" {
+  secret_id     = aws_secretsmanager_secret.ops_cognito_argocd.id
+  secret_string = jsonencode({ clientSecret = aws_cognito_user_pool_client.ops["argocd"].client_secret })
+}
+
 # ops-users.sh · addons.sh 가 읽음
 resource "aws_ssm_parameter" "ops_cognito" {
   for_each = {
@@ -116,6 +129,9 @@ resource "aws_ssm_parameter" "ops_cognito" {
     ops_cognito_hosted_ui         = local.ops_hosted_ui
     grafana_root_url              = "https://${var.domain_name}/grafana/"
     grafana_signout_url           = "${local.ops_hosted_ui}/logout?client_id=${aws_cognito_user_pool_client.ops["grafana"].id}&logout_uri=${urlencode(local.grafana_login_url)}"
+    ops_cognito_argocd_client_id  = aws_cognito_user_pool_client.ops["argocd"].id
+    ops_cognito_issuer            = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.ops.id}"
+    argocd_url                    = local.argocd_url
   }
   name  = "${local.ssm_prefix}/${each.key}"
   type  = "String"

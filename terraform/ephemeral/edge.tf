@@ -2,8 +2,8 @@
 # 진입 (CloudFront · VPC origin · Route 53 alias) — ALB 와 함께 매일 만들고 지움
 #   VPC origin 은 ALB ARN 에 묶이고, 배포가 VPC origin 을 쓰는 동안 둘 다 지울 수 없어서 배포까지 ephemeral 에 둠
 #   (S3 프론트 · OAC · CF Function · 인증서는 persistent)
-#   behavior ① /api/* · /grafana · /grafana/* · /oauth2/* → VPC origin(internal ALB 443) · CachingDisabled · AllViewer
-#              Grafana 인증은 ALB 규칙 (alb.tf), /oauth2/* 는 Cognito 콜백
+#   behavior ① /api/* · /grafana(/*) · /argocd(/*) · /oauth2/* → VPC origin(internal ALB 443) · CachingDisabled · AllViewer
+#              Grafana · Argo CD 인증은 ALB 규칙 (alb.tf), /oauth2/* 는 Cognito 콜백
 #   behavior ② /images/* → S3 이미지(OAC) · CachingOptimized · CF Function(/images 떼기) — persistent/images.tf
 #   behavior ③ 기본 *  → S3(OAC) · CachingOptimized · CF Function(SPA 경로) · 프론트 응답 헤더 정책(보안 헤더 + CSP Report-Only)
 # =============================================================================
@@ -117,7 +117,7 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   dynamic "ordered_cache_behavior" {
-    for_each = ["/api/*", "/grafana", "/grafana/*", "/oauth2/*"]
+    for_each = ["/api/*", "/grafana", "/grafana/*", "/argocd", "/argocd/*", "/oauth2/*"]
     content {
       path_pattern             = ordered_cache_behavior.value
       target_origin_id         = "alb"

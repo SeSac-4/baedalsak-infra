@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Argo CD UI 접속 (port-forward 전용 — ALB·CloudFront 에 노출하지 않음)
-#   사용: argocd-ui.sh [로컬 포트, 기본 8090] → http://127.0.0.1:8090 , 사용자 admin(인프라) · dev(개발팀, 읽기 전용)
+# Argo CD UI 비상 접속 (port-forward) — 평소에는 https://<도메인>/argocd (운영자 Cognito 계정)
+#   사용: argocd-ui.sh [로컬 포트, 기본 8090] → http://127.0.0.1:8090/argocd , 사용자 admin(인프라) · dev(개발팀, 읽기 전용)
 #   admin 비밀번호는 클러스터를 새로 만들 때마다(평일 09:30) 바뀜 → 실행할 때마다 출력
 #   Ctrl+C 로 종료. 환경이 꺼져 있으면(평일 18:00~10:00) 실패
 # 필요: aws cli, kubectl, jq, 본인 IAM 자격 증명 + EKS 접근 등록 (TEAM_MEMBER_ARNS)
@@ -23,6 +23,6 @@ else
   USER_NAME=dev
   PW="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${SECRET_PREFIX}/argocd-dev" --query SecretString --output text | jq -r .password)"
 fi
-echo "http://127.0.0.1:$LOCAL  사용자 $USER_NAME  비밀번호 $PW"
+echo "http://127.0.0.1:$LOCAL/argocd  사용자 $USER_NAME  비밀번호 $PW"
 echo "Ctrl+C 로 종료"
 kubectl -n argocd port-forward svc/argocd-server "$LOCAL:80"

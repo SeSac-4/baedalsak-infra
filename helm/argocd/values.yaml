@@ -1,7 +1,9 @@
 # =============================================================================
 # Argo CD (namespace argocd) — argo/argo-cd 차트 values. scripts/aws/addons.sh 가 설치 (차트 버전 고정)
 #   역할: 앱 6개만 GitOps 배포 (helm/argocd/applicationset.yaml · appproject.yaml). 애드온은 지금처럼 addons.sh 가 helm 으로 설치
-#   단일 구성 (노드 2대 개발 환경) · UI 는 port-forward 전용 (scripts/aws/argocd-ui.sh) — ALB·CloudFront 에 노출하지 않음
+#   단일 구성 (노드 2대 개발 환경) · UI 는 https://<도메인>/argocd — Grafana 와 같은 구조
+#     CloudFront → ALB 규칙(운영자 Cognito 인증, terraform/ephemeral/alb.tf) → argocd-server · 로그인도 같은 풀(OIDC, 각자 계정)
+#     비상 접속은 port-forward (scripts/aws/argocd-ui.sh, admin · dev 계정)
 #   Grafana 딥링크(application.links)는 도메인이 필요해 addons.sh 가 SSM grafana_root_url 로 채움
 #   차트 버전을 올릴 땐 helm show values argo/argo-cd --version <버전> 으로 키를 먼저 확인
 # =============================================================================
@@ -11,12 +13,12 @@
 #   ② 차트 정책은 이름 붙은 포트(repo-server · metrics)를 쓰는데, Service 포트 이름이 달라(tcp-repo-server · http-metrics)
 #      EKS VPC CNI 네트워크 정책 요구("named port 는 Service 에도 같은 이름")를 어김 → controller → repo-server 가 막힐 수 있음
 #   → 전부 끄고 addons.sh 가 기본 차단 + 내부 통신·메트릭 허용을 숫자 포트로 적용
-#   UI 는 port-forward(kubelet → 파드 안 localhost)라 NetworkPolicy 대상이 아님
+#   UI 는 ALB 서브넷 → argocd-server 8080 만 허용 (addons.sh), port-forward 는 NetworkPolicy 대상이 아님
 global:
   networkPolicy:
     create: false
 
-# SSO(dex)·알림(notifications) 미사용 — 배포 결과는 GitHub Actions → Discord, 평소 상태는 Grafana 알림(kube-prometheus-stack rules.yaml)
+# dex·알림(notifications) 미사용 — Cognito 로그인은 Argo CD 내장 OIDC(configs.cm oidc.config, 도메인·풀 ID 가 들어가 addons.sh 가 채움) · 배포 결과는 GitHub Actions → Discord, 평소 상태는 Grafana 알림(kube-prometheus-stack rules.yaml)
 dex:
   enabled: false
 notifications:
@@ -67,21 +69,28 @@ redis:
 
 configs:
   params:
-    # TLS 없이 HTTP 로 응답 — port-forward(localhost) 전용이라 인증서 경고 없이 접속
+    # TLS 없이 HTTP 로 응답 — TLS 는 CloudFront·ALB 가 끝냄 (ALB → 파드는 VPC 안 HTTP, Grafana 와 같음)
     server.insecure: true
+    # https://<도메인>/argocd 아래에서 동작 (ALB 는 경로를 떼지 않음). port-forward 도 http://127.0.0.1:8090/argocd
+    server.rootpath: /argocd
     # 첫 켜기에서 ExternalSecret · TargetGroupBinding 이 정상인데 계속 OutOfSync 면 (ESO · LBC 가 기본값을 채움)
     #   controller.diff.server.side: "true" 를 켬 (Server-Side Diff — 클러스터 dry-run 결과와 비교)
   # Git 확인 주기: 기본값(120s + 무작위 지연 최대 60s). 배포 때는 워크플로가 refresh 를 요청해 바로 반영 (scripts/aws/argocd-wait.sh)
   # 개발팀 읽기 전용 (최소 권한) — 계정 dev 는 UI 로그인만 (API 키 발급 없음), 비밀번호는 addons.sh 가 Secrets Manager 에서 넣음
   #   허용: 프로젝트 baedalsak 의 앱 조회 · 파드 로그 보기. 그 밖(sync · 삭제 · exec · 설정 · 레포 · 클러스터)은 전부 거부
   #   policy.default "" = 규칙에 없는 계정은 아무 권한 없음 (admin 은 내장 role:admin 그대로)
+  #   Cognito 로그인(OIDC)은 운영자 풀 그룹으로 — Grafana 와 같은 그룹 (scripts/aws/ops-users.sh 가 관리)
+  #     grafana-admin → admin(내장 role:admin) · grafana-viewer → 읽기 전용
   rbac:
     policy.default: ""
+    scopes: "[cognito:groups]"
     policy.csv: |
       p, role:dev-readonly, applications, get, baedalsak/*, allow
       p, role:dev-readonly, logs, get, baedalsak/*, allow
       p, role:dev-readonly, projects, get, baedalsak, allow
       g, dev, role:dev-readonly
+      g, grafana-viewer, role:dev-readonly
+      g, grafana-admin, role:admin
   cm:
     accounts.dev: login
     # 모든 화면 위에 표시 (닫으면 문구가 바뀔 때까지 숨김)

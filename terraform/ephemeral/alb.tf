@@ -1,4 +1,4 @@
-# internal ALB + 대상 그룹(gateway · Grafana, ip 타입). 파드 등록은 LBC 의 TargetGroupBinding
+# internal ALB + 대상 그룹(gateway · Grafana · Argo CD, ip 타입). 파드 등록은 LBC 의 TargetGroupBinding
 #   443 : CloudFront VPC origin → HTTPS (ACM ②, persistent/dns.tf)
 #   80  : VPC 안 전용 (smoke test · Bastion 터널) — SG 로 노드·Bastion 만 허용, 외부 진입 경로 아님
 resource "aws_lb" "internal" {
@@ -60,6 +60,27 @@ resource "aws_lb_target_group" "grafana" {
   }
 }
 
+# Argo CD server (argocd) — TargetGroupBinding 은 scripts/aws/addons.sh. /healthz 는 rootpath(/argocd) 밖 경로
+resource "aws_lb_target_group" "argocd" {
+  name                 = "${local.name}-argocd"
+  target_type          = "ip"
+  protocol             = "HTTP"
+  port                 = 8080
+  vpc_id               = module.vpc.vpc_id
+  deregistration_delay = 30
+
+  health_check {
+    path                = "/healthz"
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 10
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.internal.arn
   port              = 443
@@ -102,6 +123,37 @@ resource "aws_lb_listener_rule" "grafana" {
   condition {
     path_pattern {
       values = ["/grafana", "/grafana/*", "/oauth2/*"]
+    }
+  }
+}
+
+# Argo CD — Grafana 와 같은 운영자 풀 인증 (콜백 /oauth2/* 는 위 grafana 규칙이 처리)
+resource "aws_lb_listener_rule" "argocd" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 20
+
+  action {
+    type  = "authenticate-cognito"
+    order = 1
+    authenticate_cognito {
+      user_pool_arn              = local.p.ops_cognito_user_pool_arn
+      user_pool_client_id        = local.p.ops_cognito_alb_client_id
+      user_pool_domain           = local.p.ops_cognito_domain_prefix
+      on_unauthenticated_request = "authenticate"
+      scope                      = "openid email profile"
+      session_timeout            = 28800
+    }
+  }
+
+  action {
+    type             = "forward"
+    order            = 2
+    target_group_arn = aws_lb_target_group.argocd.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/argocd", "/argocd/*"]
     }
   }
 }

@@ -215,7 +215,7 @@ EOF
 
 # 앱 6개 GitOps 배포 — ApplicationSet 은 deploy.sh 가 적용 (db-init · Cognito 정리 뒤)
 #   메이저 버전마다 값 구조가 바뀌어 버전 고정 — 올릴 땐 helm show values 로 키를 먼저 확인
-echo "== Argo CD (argocd) — 단일 구성, UI 는 port-forward 전용 (scripts/aws/argocd-ui.sh)"
+echo "== Argo CD (argocd) — 단일 구성, UI 는 https://<도메인>/argocd (운영자 Cognito)"
 # 앱 화면의 Grafana 링크 (딥링크) — 도메인이 들어가 Git 이 아니라 SSM grafana_root_url(https://<도메인>/grafana/)에서 채움
 #   서비스 대시보드 = Spring Boot Observability(uid dLsDQIUnzb, 변수 app_name) · Argo CD 대시보드(uid LCAgc9rWz)
 GRAFANA_URL="$(ssm grafana_root_url)"
@@ -229,15 +229,30 @@ configs:
         description: 지표 · 로그 (운영자 로그인)
       - url: ${GRAFANA_URL}d/LCAgc9rWz
         title: Grafana Argo CD 대시보드
+    # 운영자 Cognito 로그인 (terraform/persistent/cognito_ops.tf 앱 클라이언트 argocd) — 비밀값은 아래 secret.extra
+    url: $(ssm argocd_url)
+    oidc.config: |
+      name: 배달싹 운영자 (Cognito)
+      issuer: $(ssm ops_cognito_issuer)
+      clientID: $(ssm ops_cognito_argocd_client_id)
+      clientSecret: \$oidc.cognito.clientSecret
+      requestedScopes: ["openid", "email", "profile"]
 LINKS
-# 개발팀 읽기 전용 계정 dev 의 비밀번호 (bcrypt, terraform persistent 가 만듦) — 없으면 dev 로그인만 안 되고 설치는 계속
-DEV_HASH="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${SECRET_PREFIX}/argocd-dev" \
-  --query SecretString --output text 2>/dev/null | jq -r '.bcrypt // empty' || true)"
-if [ -n "$DEV_HASH" ]; then
-  printf '  secret:\n    extra:\n      accounts.dev.password: "%s"\n' "$DEV_HASH" >> "$ARGOCD_LINKS"
-else
-  echo "경고: ${SECRET_PREFIX}/argocd-dev 없음 — Argo CD dev 계정 로그인 불가 (terraform persistent apply 필요)"
-fi
+# argocd-secret 에 넣을 값 (Secrets Manager, terraform persistent 가 만듦) — 없으면 그 로그인만 안 되고 설치는 계속
+#   dev 계정 비밀번호(bcrypt) · Cognito 앱 클라이언트 비밀값
+secret_field() {
+  aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${SECRET_PREFIX}/$1" \
+    --query SecretString --output text 2>/dev/null | jq -r ".$2 // empty" || true
+}
+DEV_HASH="$(secret_field argocd-dev bcrypt)"
+OIDC_SECRET="$(secret_field ops-cognito-argocd clientSecret)"
+[ -n "$DEV_HASH" ] || echo "경고: ${SECRET_PREFIX}/argocd-dev 없음 — Argo CD dev 계정 로그인 불가 (terraform persistent apply 필요)"
+[ -n "$OIDC_SECRET" ] || echo "경고: ${SECRET_PREFIX}/ops-cognito-argocd 없음 — Argo CD Cognito 로그인 불가 (terraform persistent apply 필요)"
+{
+  printf '  secret:\n    extra:\n'
+  [ -z "$DEV_HASH" ] || printf '      accounts.dev.password: "%s"\n' "$DEV_HASH"
+  [ -z "$OIDC_SECRET" ] || printf '      oidc.cognito.clientSecret: "%s"\n' "$OIDC_SECRET"
+} >> "$ARGOCD_LINKS"
 helm upgrade --install argocd argo/argo-cd \
   -n argocd --create-namespace --version 10.10.5 \
   -f "$(dirname "$0")/../../helm/argocd/values.yaml" \
@@ -249,7 +264,7 @@ rm -f "$ARGOCD_LINKS"
 #   포트는 숫자로 — EKS VPC CNI 네트워크 정책은 이름 붙은 포트를 쓰면 Service 에도 같은 이름이어야 하는데 차트 Service 이름이 다름
 #   repo-server 8081 ← server · controller · applicationset / redis 6379 ← server · repo-server · controller
 #   메트릭 controller 8082 · server 8083 · repo-server 8084 ← monitoring(Prometheus)
-#   server 8080(UI·API)은 아무 데서도 허용 안 함 → 다른 파드가 로그인 API 에 직접 못 들어옴. UI 는 port-forward(정책 대상 아님)
+#   server 8080(UI·API)은 ALB 서브넷에서만 → 앱 파드가 로그인 API 에 직접 못 들어옴 (ALB 와 같은 서브넷 파드는 Grafana 와 같은 한계)
 #   applicationset-controller 는 들어오는 연결이 필요 없어 기본 차단만 받음
 kubectl apply -f - <<EOF
 apiVersion: networking.k8s.io/v1
@@ -302,6 +317,27 @@ spec:
         - { port: 8082, protocol: TCP }
         - { port: 8083, protocol: TCP }
         - { port: 8084, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: argocd-server-alb, namespace: argocd }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: argocd-server } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+$(for cidr in ${ALB_CIDRS//,/ }; do echo "        - ipBlock: { cidr: $cidr }"; done)
+      ports:
+        - { port: 8080, protocol: TCP }
+---
+# ALB → Argo CD server 파드 IP 등록 (대상 그룹은 terraform/ephemeral/alb.tf)
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata: { name: argocd, namespace: argocd }
+spec:
+  serviceRef: { name: argocd-server, port: 80 }
+  targetGroupARN: "$(ssm argocd_target_group_arn)"
+  targetType: ip
 EOF
 
 # 개발팀(EKS access entry 그룹 argocd-ui-portforward, terraform/ephemeral/eks.tf) — argocd 에선 port-forward 만 추가 허용

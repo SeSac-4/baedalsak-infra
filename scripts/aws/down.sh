@@ -26,6 +26,7 @@ done
 
 # monitoring 은 이 대기 뒤에 지우므로 Grafana TGB 를 먼저 지움 (LBC 가 살아 있을 때)
 kubectl -n monitoring delete targetgroupbinding grafana --ignore-not-found --wait --timeout=2m 2>/dev/null || true
+kubectl -n argocd delete targetgroupbinding argocd --ignore-not-found --wait --timeout=2m 2>/dev/null || true
 
 echo "== TargetGroupBinding 0개 대기"
 for _ in $(seq 1 30); do
