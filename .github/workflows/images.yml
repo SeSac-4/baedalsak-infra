@@ -108,10 +108,25 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: echo "### $SERVICE → image_tag **$TAG** ($SERVER_REPO@$SERVER_REF)" >> "$GITHUB_STEP_SUMMARY"
 
-  # 6개 모두 성공했을 때만. AWS 켜기·끄기와 겹치지 않게 같은 concurrency group
-  #   contents: write — 이미지 태그 커밋·되돌리기 (scripts/aws/image-tag.sh, develop 에 push)
-  deploy:
+  # 6개 모두 성공하면 태그를 바로 Git 에 커밋 — aws-stack 대기열 밖 (images 그룹 안이라 순서대로)
+  #   deploy 가 대기열에서 밀려 취소돼도 태그는 develop 에 남음 → 다음 켜기·배포·gitops-check 가 그 태그로 배포
+  #   (aws-stack 의 commit image tag 단계는 같은 태그라 그대로 넘어감)
+  tag:
     needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: commit image tag
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.tag }}
+        run: ./scripts/aws/image-tag.sh set "$IMAGE_TAG"
+
+  # 6개 모두 성공했을 때만. AWS 켜기·끄기와 겹치지 않게 같은 concurrency group
+  #   contents: write — 이미지 태그 되돌리기 (scripts/aws/image-tag.sh, develop 에 push)
+  deploy:
+    needs: [build, tag]
     permissions:
       id-token: write
       contents: write
