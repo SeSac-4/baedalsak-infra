@@ -207,17 +207,32 @@ resource "aws_iam_role_policy" "member" {
   role = aws_iam_role.member.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "cognito-idp:AdminCreateUser",
-        "cognito-idp:AdminSetUserPassword",
-        "cognito-idp:AdminDeleteUser",
-        "cognito-idp:AdminInitiateAuth",
-        "cognito-idp:AdminAddUserToGroup",
-      ]
-      Resource = "arn:aws:cognito-idp:${var.region}:${local.account}:userpool/${nonsensitive(data.aws_ssm_parameter.cognito_user_pool_id.value)}"
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminDeleteUser",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminUserGlobalSignOut", # 비밀번호 재설정 후 다른 기기 로그아웃 (#39)
+        ]
+        Resource = "arn:aws:cognito-idp:${var.region}:${local.account}:userpool/${nonsensitive(data.aws_ssm_parameter.cognito_user_pool_id.value)}"
+      },
+      {
+        # 휴대폰 인증 문자 (#39). 전화번호로 바로 보내는 Publish 는 대상 ARN 이 없어 "*" 만 가능
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = "*"
+      },
+      {
+        # 위 "*" 로 토픽(장애 알림 등)에 보내는 건 막음 → 문자 발송만 남음
+        Effect   = "Deny"
+        Action   = "sns:Publish"
+        Resource = "arn:aws:sns:*:*:*"
+      },
+    ]
   })
 }
 
