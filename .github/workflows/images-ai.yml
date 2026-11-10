@@ -5,7 +5,7 @@
 #   배포: 태그 커밋을 Argo CD 가 감지 (ApplicationSet 에 ai 가 들어간 뒤부터). 꺼져 있으면 다음 켜기 때
 #   서버 이미지(images.yml)와 태그 파일이 달라 서로 영향 없음
 # 레포 Variables: AWS_REGION · PROJECT · ENV_NAME · AI_REPO(선택) · AI_REF(선택, 기본 develop)
-# 레포 Secrets  : AWS_ROLE_ARN · AI_REPO_TOKEN (AI 레포가 private — fine-grained PAT, baedalsak-ai Contents: Read)
+# 레포 Secrets  : AWS_ROLE_ARN · AI_REPO_TOKEN (AI 레포가 private 일 때만 — fine-grained PAT, baedalsak-ai Contents: Read. public 이면 기본 토큰)
 # =============================================================================
 name: AI 이미지 빌드 (AI → ECR)
 
@@ -43,14 +43,13 @@ jobs:
     steps:
       - name: check variables
         env:
-          GH_TOKEN: ${{ secrets.AI_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.AI_REPO_TOKEN || github.token }}
           BRANCH: ${{ vars.AI_REF || 'develop' }}
         run: |
           : "${AWS_REGION:?레포 변수 AWS_REGION 이 없습니다}"
           : "${PROJECT:?레포 변수 PROJECT 가 없습니다}"
           : "${ENV_NAME:?레포 변수 ENV_NAME 이 없습니다}"
           : "${AWS_ROLE_ARN:?레포 Secret AWS_ROLE_ARN 이 없습니다}"
-          : "${GH_TOKEN:?레포 Secret AI_REPO_TOKEN 이 없습니다 (baedalsak-ai Contents: Read PAT)}"
           # 외부에서 들어오는 값은 커밋 SHA 형식 + AI 레포 기준 브랜치의 커밋만 허용 (images.yml 과 같음)
           if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
             [[ "$AI_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::client_payload.sha 가 커밋 SHA(40자리)가 아닙니다: $AI_REF"; exit 1; }
@@ -62,7 +61,7 @@ jobs:
         with:
           repository: ${{ env.AI_REPO }}
           ref: ${{ env.AI_REF }}
-          token: ${{ secrets.AI_REPO_TOKEN }}
+          token: ${{ secrets.AI_REPO_TOKEN || github.token }} # private 이면 AI_REPO_TOKEN 필요
 
       - name: Dockerfile 확인
         run: test -f Dockerfile || { echo "::error::$AI_REPO@$AI_REF 에 Dockerfile 이 없습니다"; exit 1; }
