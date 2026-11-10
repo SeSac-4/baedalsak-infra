@@ -73,17 +73,27 @@ resource "aws_iam_user_policy" "local_pool" {
   user     = each.value
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "cognito-idp:AdminCreateUser",
-        "cognito-idp:AdminSetUserPassword",
-        "cognito-idp:AdminDeleteUser",
-        "cognito-idp:AdminInitiateAuth",
-        "cognito-idp:AdminAddUserToGroup",
-      ]
-      Resource = aws_cognito_user_pool.this["local"].arn
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminDeleteUser",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminUserGlobalSignOut", # 비밀번호 재설정 후 다른 기기 로그아웃 (#39)
+        ]
+        Resource = aws_cognito_user_pool.this["local"].arn
+      },
+      {
+        # 로컬에서 휴대폰 인증 실제 발송 확인용 (#39). 샌드박스라 등록된 팀원 번호로만 감
+        #   Deny(토픽 차단)는 넣지 않음 — 관리자 IAM(인프라)의 알림 토픽 작업까지 막힘
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = "*"
+      },
+    ]
   })
 }
 
