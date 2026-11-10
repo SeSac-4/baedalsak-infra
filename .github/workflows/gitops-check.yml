@@ -18,6 +18,7 @@ on:
       - "!helm/values/local.yaml"
       - helm/argocd/applicationset.yaml
       - helm/argocd/appproject.yaml
+      - helm/argocd/valkey-cache.yaml
       - scripts/aws/networkpolicy.yaml
   workflow_dispatch:
 

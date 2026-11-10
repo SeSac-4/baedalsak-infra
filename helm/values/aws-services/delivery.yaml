@@ -6,3 +6,19 @@
 #   values 파일끼리는 null 로 키를 지울 수 없어(helm) aws.yaml 이 아니라 서비스별로 둠 — gateway 는 DB 를 쓰지 않아 없음
 extraEnv:
   SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"
+  REDIS_CACHE_HOST: valkey-cache
+  REDIS_CACHE_PORT: "6379"
+  SPRING_DATA_REDIS_DATABASE: "0"    # Valkey DB 번호 — 서비스별 배정표는 helm/charts/valkey/values.yaml
+  SPRING_DATA_REDIS_SSL_ENABLED: "false"
+
+# 캐시 Valkey (helm/charts/valkey, Service valkey-cache) — ElastiCache(세션 · 토큰)와 별개
+#   클러스터 안이라 TLS 없음 → aws.yaml 의 SPRING_DATA_REDIS_SSL_ENABLED=true(ElastiCache 용)를 이 서비스만 끔
+#   비밀번호는 Secrets Manager <SECRET_PREFIX>/valkey-cache 에서 (Valkey 파드와 같은 값)
+#   키는 DB 0 에만 씀 — 다른 서비스는 다른 DB 번호를 써서 키가 섞이지 않음
+#   카카오 REST 키는 <SECRET_PREFIX>/kakao (값은 콘솔 · CLI 로 넣음, Terraform 은 CHANGE_ME 로만 만듦)
+secretKeys:
+  - REDIS_CACHE_PASSWORD
+  - KAKAO_REST_API_KEY
+externalSecretFrom:
+  REDIS_CACHE_PASSWORD: valkey-cache
+  KAKAO_REST_API_KEY: kakao

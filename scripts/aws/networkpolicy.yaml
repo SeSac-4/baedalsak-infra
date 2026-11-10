@@ -114,3 +114,16 @@ spec:
         - podSelector: { matchLabels: { run: smoke-test } }
       ports:
         - { port: 8081, protocol: TCP }
+---
+# 캐시 Valkey (helm/charts/valkey) ← delivery 만 (다른 서비스가 쓰게 되면 여기에 추가 — DB 번호는 helm/charts/valkey/values.yaml)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: valkey-cache, namespace: ${NS} }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: valkey-cache } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: delivery } }
+      ports:
+        - { port: 6379, protocol: TCP }

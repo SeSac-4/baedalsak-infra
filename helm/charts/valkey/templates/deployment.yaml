@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "valkey.name" . }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  # 캐시 1개 — 두 파드가 동시에 떠 있을 이유가 없음 (바뀌는 동안 delivery 는 위치만 비움)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "valkey.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: valkey
+          image: {{ include "valkey.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: REDIS_CACHE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "valkey.name" . }}, key: REDIS_CACHE_PASSWORD } }
+          # 설정 파일 없이 인자로 — 디스크 저장 끔(save "" · appendonly no), 가득 차면 LRU 로 지움
+          args:
+            - valkey-server
+            - --port
+            - {{ .Values.port | quote }}
+            - --requirepass
+            - $(REDIS_CACHE_PASSWORD)
+            - --databases
+            - {{ .Values.databases | quote }}
+            - --maxmemory
+            - {{ .Values.maxmemory | quote }}
+            - --maxmemory-policy
+            - allkeys-lru
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+          ports:
+            - name: valkey
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket: { port: valkey }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: valkey }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 64Mi

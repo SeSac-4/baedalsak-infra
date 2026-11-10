@@ -1,0 +1,52 @@
+# =============================================================================
+# 캐시 Valkey 이미지 → ECR (<PROJECT>-<ENV_NAME>/valkey:<태그>)
+#   Docker Hub 공식 이미지 valkey/valkey 를 linux/amd64 로 받아 그대로 ECR 에 올림 (빌드 없음)
+#   태그 = helm/charts/valkey/values.yaml 의 image.tag (ElastiCache 와 같은 9.1) — 파드가 쓰는 태그와 항상 같게 한 곳에서만 관리
+#   평소에는 따로 실행할 필요 없음 — "AWS 상시 리소스 적용" · "AWS 켜기" 가 persistent apply 직후 같은 스크립트를 돌림
+#   이 워크플로는 태그를 바꿨을 때(그 파일이 develop 에 바뀌면 자동) · 수동 실행용. 이미 ECR 에 있는 태그면 건너뜀
+#   본체: scripts/aws/valkey-image.sh
+# 레포 Variables: AWS_REGION · PROJECT · ENV_NAME / Secrets: AWS_ROLE_ARN
+# =============================================================================
+name: Valkey 이미지 (Docker Hub → ECR)
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - helm/charts/valkey/values.yaml
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: images-valkey
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  PROJECT: ${{ vars.PROJECT }}
+  ENV_NAME: ${{ vars.ENV_NAME }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: check variables
+        run: |
+          : "${AWS_REGION:?레포 변수 AWS_REGION 이 없습니다}"
+          : "${PROJECT:?레포 변수 PROJECT 가 없습니다}"
+          : "${ENV_NAME:?레포 변수 ENV_NAME 이 없습니다}"
+          : "${AWS_ROLE_ARN:?레포 Secret AWS_ROLE_ARN 이 없습니다}"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          mask-aws-account-id: true
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: ./scripts/aws/valkey-image.sh | tee -a "$GITHUB_STEP_SUMMARY"

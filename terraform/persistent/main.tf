@@ -63,8 +63,9 @@ locals {
 
 # ---------- ECR <project>-<env>/<서비스> · 최신 7개만 보관 (롤백용 이전 버전 포함) ----------
 #   ai: 메뉴 사진 배경 제거(FastAPI, 레포 baedalsak-ai) — ECR 만 (Secret · DB 계정 없음), 빌드는 .github/workflows/images-ai.yml
+#   valkey: 서비스 캐시용 Valkey (지금은 delivery) (EKS 파드, helm/charts/valkey) — Docker Hub 공식 이미지를 그대로 옮김 (.github/workflows/images-valkey.yml)
 resource "aws_ecr_repository" "svc" {
-  for_each = toset(concat(local.services, ["ai"]))
+  for_each = toset(concat(local.services, ["ai", "valkey"]))
   name     = "${local.name}/${each.key}"
 
   # push 할 때 기본 취약점 스캔 (무료) — ECR 경로에는 테스트·Trivy 가 없어서 최소한의 확인
@@ -104,6 +105,12 @@ resource "random_password" "mq" {
 
 # ElastiCache AUTH 토큰: 16~128자, @ " / 불가
 resource "random_password" "redis" {
+  length  = 48
+  special = false
+}
+
+# 캐시 Valkey (EKS 파드) 비밀번호 — ElastiCache(세션·토큰)와 따로
+resource "random_password" "valkey_cache" {
   length  = 48
   special = false
 }
@@ -151,6 +158,32 @@ resource "aws_secretsmanager_secret_version" "svc" {
     each.key == "payment" ? { TOSS_SECRET_KEY = "CHANGE_ME_toss_test_secret_key" } : {}
   ))
   # 토스 키 등 콘솔에서 바꾼 값을 다음 apply 가 덮어쓰지 않게
+  lifecycle { ignore_changes = [secret_string] }
+}
+
+# 캐시 Valkey 비밀번호 — Valkey 파드(helm/charts/valkey)와 쓰는 서비스(지금은 delivery)가 같은 값을 읽음
+#   (서비스 시크릿은 ignore_changes 라 키를 추가해도 기존 시크릿에 반영되지 않아 따로 둠. 앱은 externalSecretFrom 으로 가져감)
+resource "aws_secretsmanager_secret" "valkey_cache" {
+  name                    = "${local.secret_prefix}/valkey-cache"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "valkey_cache" {
+  secret_id     = aws_secretsmanager_secret.valkey_cache.id
+  secret_string = jsonencode({ REDIS_CACHE_PASSWORD = random_password.valkey_cache.result })
+}
+
+# 카카오 REST API 키 — delivery (주소 → 좌표, 길찾기). 레포가 PUBLIC 이라 실제 값은 콘솔 · CLI 로 넣음 (Terraform 은 덮어쓰지 않음)
+#   값이 CHANGE_ME 그대로면 delivery 의 좌표 변환 · 길찾기가 실패 → 위치 · 경로 없음 (배달 API 는 그대로 동작)
+resource "aws_secretsmanager_secret" "kakao" {
+  name                    = "${local.secret_prefix}/kakao"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "kakao" {
+  secret_id     = aws_secretsmanager_secret.kakao.id
+  secret_string = jsonencode({ KAKAO_REST_API_KEY = "CHANGE_ME_kakao_rest_api_key" })
+
   lifecycle { ignore_changes = [secret_string] }
 }
 
@@ -274,6 +307,17 @@ resource "aws_ssm_parameter" "toss_client_key" {
   name  = "${local.ssm_prefix}/toss_client_key"
   type  = "String"
   value = "test_gck_docs_Ovk5rk1EwkEbP0W43n07xlzm"
+  lifecycle { ignore_changes = [value] }
+}
+
+# ---------- 카카오맵 JavaScript 키 (프론트 빌드 VITE_KAKAO_MAP_KEY, frontend.yml 이 읽음) ----------
+#   지도 표시 · 브라우저 주소 → 좌표. 브라우저에 노출되는 공개 키라 String (서버용 REST 키는 Secrets Manager <SECRET_PREFIX>/kakao)
+#   카카오 개발자 콘솔 [플랫폼 > Web] 에 배포 도메인을 등록해야 동작. 실제 값은 콘솔 · CLI 로 넣음 (apply 가 덮어쓰지 않음)
+#   우편번호 검색(Daum 우편번호 서비스)은 키가 필요 없음
+resource "aws_ssm_parameter" "kakao_map_key" {
+  name  = "${local.ssm_prefix}/kakao_map_key"
+  type  = "String"
+  value = "CHANGE_ME_kakao_javascript_key"
   lifecycle { ignore_changes = [value] }
 }
 
