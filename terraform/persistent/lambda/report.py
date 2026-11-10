@@ -1,4 +1,5 @@
-# Lambda ② — 켜기·끄기가 끝난 뒤(성공·실패·시간 초과 모두) 결과를 확인해 메일(SNS alerts)로 보냄
+# Lambda ② — 켜기·끄기가 끝난 뒤(성공·실패·시간 초과 모두) 결과를 확인해 실패면 SNS alerts(→ Discord)로 보냄
+#   대기열에서 밀려 시작 전에 취소된 실행은 알림 없이 retry=true → Step Functions 가 1번 다시 실행 (should_retry)
 #   ① GitHub 실행 찾기 (Step Functions 시작 시각 이후의 aws-up/aws-down 실행) → 실패한 job·step + 오류 로그
 #   ② AWS 실제 상태 확인 — 켜기: EKS·노드그룹·RDS·사이트 응답 / 끄기: 비용이 나가는 리소스가 남았는지
 #   반환 ok=false 면 Step Functions 가 실패로 끝남
@@ -62,16 +63,25 @@ def log_excerpt(text):
 
 
 def github_section(action, started, token):
+    """(메시지 줄, 가장 최근 실행의 conclusion)"""
     repo, ref = os.environ["GITHUB_REPO"], os.environ["GITHUB_REF"]
     since = started[:19] + "Z"
     q = urllib.parse.urlencode({"branch": ref, "event": "workflow_dispatch", "created": f">={since}", "per_page": 5})
     runs = _gh(f"/repos/{repo}/actions/workflows/{WORKFLOWS[action]}/runs?{q}", token)["workflow_runs"]
     if not runs:
-        return ["GitHub 실행 없음 — 워크플로가 시작되지 않음 (Lambda ① dispatch 실패 · 토큰 · 브랜치 확인)"]
+        return ["GitHub 실행 없음 — 워크플로가 시작되지 않음 (Lambda ① dispatch 실패 · 토큰 · 브랜치 확인)"], None
     out = []
     for i, run in enumerate(reversed(runs[:2]), 1):  # Step Functions 재시도 시 실행 2개 (오래된 것부터)
         out += _run_lines(repo, run, token, f"{i}회차 " if len(runs) > 1 else "")
-    return out
+    return out, runs[0]["conclusion"]
+
+
+def should_retry(error, retried, conclusion):
+    """대기열(aws-stack)에서 밀려 시작도 못 하고 취소된 실행만 1번 다시 실행
+    - 시작했다가 취소되면 워크플로 마지막 단계(always)가 WorkflowCancelled 로 보고 → 사람이 누른 취소일 수 있어 다시 실행 안 함
+    - 시작 전에 취소되면 보고할 단계가 없어 Step Functions 가 시간 초과(States.Timeout) → GitHub 에선 cancelled
+    """
+    return not retried and bool(error) and error.get("Error") == "States.Timeout" and conclusion == "cancelled"
 
 
 def _run_lines(repo, run, token, prefix):
@@ -149,11 +159,16 @@ def build_message(action, started, error, gh_lines, checks):
 def handler(event, _context):
     inp = event["input"]
     action, started, error = inp["action"], event["started"], inp.get("error")
+    conclusion = None
     try:
         token = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["GITHUB_TOKEN_SECRET"])["SecretString"].strip()
-        gh_lines = github_section(action, started, token)
+        gh_lines, conclusion = github_section(action, started, token)
     except Exception as e:
         gh_lines = [f"GitHub 조회 실패: {e}"]
+    if should_retry(error, inp.get("retried"), conclusion):
+        # 상태 확인 · 실패 알림 없이 다시 실행 (Step Functions RetryOnce). 다시 실행도 실패하면 그때 알림
+        print(f"retry: {action} 실행이 대기 중 취소됨 → 1번 다시 실행")
+        return {"ok": False, "retry": True}
     try:
         checks = check_up() if action == "up" else check_down()
     except Exception as e:
@@ -162,4 +177,4 @@ def handler(event, _context):
     # 성공은 메일 없이 Step Functions·Lambda 로그로만 남김 (실패만 알림). SNS 메일 제목은 ASCII 만 허용
     if not ok:
         boto3.client("sns").publish(TopicArn=os.environ["TOPIC_ARN"], Subject=f"[{NAME}] AWS {action} FAILED", Message=message)
-    return {"ok": ok}
+    return {"ok": ok, "retry": False}

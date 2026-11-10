@@ -250,7 +250,8 @@ resource "aws_lambda_permission" "budget_guard" {
 }
 
 # ---------- Step Functions (켜기·끄기 실행 · 대기 · 재시도 · 결과 확인 · 메일) ----------
-#   RunWorkflow(Lambda ①, 작업 토큰 대기 · 워크플로 실패 시 1회 재실행) ─ 성공/실패/시간 초과 모두 → Report(Lambda ②: 로그·상태 확인 → 메일) → ok 면 성공, 아니면 실패
+#   RunWorkflow(Lambda ①, 작업 토큰 대기 최대 1시간 · 워크플로 실패 시 1회 재실행) ─ 성공/실패/시간 초과 모두 → Report(Lambda ②: 로그·상태 확인 → 알림)
+#     → ok 면 성공 · retry(대기 중 취소) 면 RetryOnce → RunWorkflow 1번 더 · 아니면 실패
 #   Report 자체가 실패하면 → NotifyFallback(SNS 직접) → 실패
 data "aws_iam_policy_document" "sfn_trust" {
   statement {
@@ -290,7 +291,7 @@ resource "aws_sfn_state_machine" "power" {
         Type           = "Task"
         Resource       = "arn:aws:states:::lambda:invoke.waitForTaskToken"
         Parameters     = { FunctionName = aws_lambda_function.this["dispatch"].arn, Payload = { "action.$" = "$.action", "token.$" = "$$.Task.Token" } }
-        TimeoutSeconds = 7200 # 켜기 약 30분 · 끄기 약 20분, 워크플로 timeout 120분
+        TimeoutSeconds = 3600 # 켜기 약 30분 · 끄기 약 20분 + 앞 작업 대기. 대기 중 취소를 1시간 안에 잡음 (Report → RetryOnce)
         ResultPath     = "$.result"
         Retry = [
           { ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 30 },
@@ -304,16 +305,25 @@ resource "aws_sfn_state_machine" "power" {
         Type           = "Task"
         Resource       = "arn:aws:states:::lambda:invoke"
         Parameters     = { FunctionName = aws_lambda_function.this["report"].arn, Payload = { "input.$" = "$", "started.$" = "$$.Execution.StartTime" } }
-        ResultSelector = { "ok.$" = "$.Payload.ok" }
+        ResultSelector = { "ok.$" = "$.Payload.ok", "retry.$" = "$.Payload.retry" }
         ResultPath     = "$.report"
         Retry          = [{ ErrorEquals = ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.Unknown"], MaxAttempts = 2, IntervalSeconds = 10 }]
         Catch          = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.reportError", Next = "NotifyFallback" }]
         Next           = "Result"
       }
       Result = {
-        Type    = "Choice"
-        Choices = [{ Variable = "$.report.ok", BooleanEquals = true, Next = "Done" }]
+        Type = "Choice"
+        Choices = [
+          { Variable = "$.report.ok", BooleanEquals = true, Next = "Done" },
+          { Variable = "$.report.retry", BooleanEquals = true, Next = "RetryOnce" },
+        ]
         Default = "Failed"
+      }
+      # 대기열(aws-stack)에서 밀려 시작 전에 취소된 실행 → 같은 action 으로 1번 다시 (이전 결과·오류는 버림)
+      RetryOnce = {
+        Type       = "Pass"
+        Parameters = { "action.$" = "$.action", retried = true }
+        Next       = "RunWorkflow"
       }
       # SNS 메일 제목은 ASCII 만 허용
       NotifyFallback = {

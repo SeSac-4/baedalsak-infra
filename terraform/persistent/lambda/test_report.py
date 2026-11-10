@@ -17,4 +17,12 @@ ok, msg = report.build_message("down", "2026-10-23T10:00:00.000Z", {"Error": "St
 assert not ok and "AWS 끄기 실패" in msg and "10-23 19:00 KST" in msg and "States.Timeout" in msg, msg
 ok, _ = report.build_message("down", "2026-10-23T10:00:00.000Z", None, [], [(False, "남은 리소스: NAT x")])
 assert not ok
+# 대기 중 취소만 1번 다시 실행
+T = {"Error": "States.Timeout", "Cause": "c"}
+assert report.should_retry(T, None, "cancelled")
+assert not report.should_retry(T, True, "cancelled"), "다시 실행은 1번만"
+assert not report.should_retry({"Error": "WorkflowCancelled"}, None, "cancelled"), "시작 뒤 취소(사람)는 다시 실행 안 함"
+assert not report.should_retry(T, None, None), "실행이 없거나 아직 대기 중이면 알림"
+assert not report.should_retry(T, None, "failure")
+assert not report.should_retry(None, None, "cancelled")
 print("ok")

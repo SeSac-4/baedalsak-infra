@@ -134,6 +134,7 @@ terraform -chdir=terraform/persistent plan
   - 제목 `[baedalsak-prod] AWS up|down OK|FAILED`
   - 본문: AWS 상태 확인(켜기: EKS·노드그룹·RDS·`https://<DOMAIN>/api/v1/stores` 응답 / 끄기: 남은 EKS·RDS·MQ·ElastiCache·ALB·NAT·EC2·CloudFront) + GitHub 실행 링크 · 막힌 job·step · 오류 줄 · 로그 마지막 40줄
   - 워크플로가 성공해도 AWS 상태 확인에서 걸리면 FAILED (예: 끄기 후 NAT 가 남음)
+  - 대기열(`aws-stack`, 실행 1 + 대기 1)에서 밀려 **시작 전에 취소**되면 Step Functions 가 1시간 뒤 감지해 **1번 자동 재실행** (알림 없음). 재실행도 실패하면 FAILED 알림. 실행 중에 사람이 누른 취소는 재실행하지 않음
 - 일일 비용이 `BUDGET_WARN_USD`(10) 를 넘으면 경고, `BUDGET_DAILY_USD`(20) 를 넘으면 알림 — Discord (+ `ALERT_EMAILS` 메일) (자동 끄기는 `budget_auto_down` 기본 false 로 꺼 둠). Budgets 는 하루 몇 번만 갱신돼 실시간이 아님
 - **일일 비용 알림**: 매일 09:00 KST Lambda ④ `cost_report` 가 이틀 전·전날 하루 비용(Cost Explorer, 크레딧·환불 차감 전)을 서비스별 표(맨 아래 합계)로 Discord 에 보냅니다 (`ALERT_EMAILS` 가 있으면 SES 메일도). Cost Explorer 가 하루 가까이 늦게 집계돼 전날 값은 적게 나오므로 이틀 전 표가 기준입니다. 스택 태그별 표는 멤버 계정이라 비용 할당 태그를 켤 수 없어 뺐습니다.
   - 메일(선택): 발신 `cost-report@<DOMAIN_NAME>`(레포 변수 `COST_REPORT_SENDER` 로 변경 가능), 수신 Secret `ALERT_EMAILS` — SES 샌드박스라 수신 주소마다 "Amazon Web Services – Email Address Verification Request" 메일 링크 1회 클릭
