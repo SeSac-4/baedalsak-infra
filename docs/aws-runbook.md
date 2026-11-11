@@ -29,6 +29,7 @@ helm/argocd/     Argo CD values · 앱 6개 ApplicationSet (아래 "앱 배포 �
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
 ├── images.yml          앱 이미지 빌드 (서버 레포 SERVER_REPO → ECR) → 태그 커밋 → 켜져 있으면 Argo CD 배포 확인
 ├── gitops-check.yml    인프라 변경 배포 확인 (helm 변경 머지 → 켜져 있으면 sync 대기 + smoke test)
+├── pr-check.yml        PR 검사 (develop 로 가는 PR — helm 렌더링 · <nil> · kubeconform · 렌더링 차이 · shellcheck · actionlint)
 └── frontend.yml        프론트 배포 (클라이언트 레포 CLIENT_REPO → npm build → S3 → CloudFront 무효화)
 ```
 
@@ -184,6 +185,7 @@ aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id baedalsa
 - 앱 6개는 전용 프로젝트 `baedalsak`(`helm/argocd/appproject.yaml`)로만 배포됩니다 — 이 레포 · `prod` · 차트가 만드는 kind 만 허용. 차트에 새 kind 를 추가하면 프로젝트 허용 목록에도 추가하세요 (빠지면 sync 가 "not permitted in project" 로 실패).
 - **18:00 · 09:30 전후에는 helm 변경 push 를 피하세요** — 켜기·끄기·이미지 배포·변경 확인이 같은 동시 실행 그룹(`aws-stack`)이라, 대기 중인 끄기·켜기가 새 실행에 밀려 취소될 수 있습니다. 취소되면 Actions 에서 AWS 끄기(켜기)를 수동 실행하세요.
 - sync 가 실패하면 Argo CD 가 약 5분 동안 5번 다시 시도합니다 (켜기 직후 ESO·webhook 준비 전 실패 대비).
+- **develop 은 PR 로만 바꿉니다** (ruleset `develop-pr`) — 브랜치에서 작업 → develop 로 PR → **PR 검사** 두 job(helm 렌더링 · 스크립트·워크플로 검사) 통과 → 머지. 승인 수는 0(담당자가 직접 머지). 직접 push 는 거부되고, 이미지 태그 커밋 · 자동 revert 를 push 하는 github-actions[bot] 만 예외입니다. PR 화면의 Checks → Summary 에서 렌더링 차이(base → head)를 보고 의도한 변경만 있는지 확인하세요.
 - `helm/` 아래 values·차트(또는 `applicationset.yaml`·`appproject.yaml`·`networkpolicy.yaml`)를 바꿔 develop 에 머지하면 Argo CD 가 바로 반영하고, **인프라 변경 배포 확인 (Argo CD)** 워크플로가 켜져 있을 때 smoke test 를 돌립니다. 실패해도 자동으로 되돌리지 않고 Discord 로 알리므로, 직접 고치거나 그 커밋을 revert 하세요.
 
 ### infra 변경 배포 확인이 실패했을 때

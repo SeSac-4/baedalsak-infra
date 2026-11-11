@@ -1,0 +1,89 @@
+# =============================================================================
+# PR 검사 — develop 로 가는 PR 을 머지 전에 확인 (AWS · 클러스터 접속 없음)
+#   develop 은 ruleset 으로 PR 필수 + 이 워크플로의 두 job 통과 필수 (이미지 태그 커밋을 push 하는 github-actions[bot] 은 예외)
+#   render : Argo CD 와 같은 값 순서로 helm template (scripts/ci/render-aws.sh)
+#            → "<nil>" 검사 → kubeconform 스키마 검사 → base 와 렌더링 차이를 Summary 에 표시
+#   lint   : shellcheck(오류만) · actionlint
+#   Argo CD 는 머지 즉시 반영하므로 여기서 걸러지지 않은 것은 gitops-check.yml 이 머지 뒤 smoke test 로 확인
+# =============================================================================
+name: PR 검사
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: helm 렌더링
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.21.4
+
+      # render-aws.sh 가 Argo CD 매니페스트(YAML)를 읽을 때 씀
+      - name: PyYAML
+        run: python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y -qq python3-yaml
+
+      - name: head 렌더링
+        run: scripts/ci/render-aws.sh . "$RUNNER_TEMP/head"
+
+      # helm 은 values 파일끼리 null 로 키를 못 지워 "<nil>" 문자열이 들어감 (Argo CD 전환 때 gateway 에서 발견)
+      - name: "<nil> 검사"
+        run: |
+          if grep -n '<nil>' "$RUNNER_TEMP"/head/*.yaml; then
+            echo "::error::렌더링 결과에 <nil> 이 있습니다 (values 에서 null 로 키를 지우려 한 곳 확인)"
+            exit 1
+          fi
+
+      # CRD(ExternalSecret · TargetGroupBinding · Argo CD)는 스키마가 없어 건너뜀 — 나머지 기본 kind 는 스키마가 없으면 실패
+      - name: kubeconform
+        run: |
+          cat "$RUNNER_TEMP"/head/*.yaml scripts/aws/networkpolicy.yaml |
+            docker run -i --rm ghcr.io/yannh/kubeconform:v0.6.7 \
+              -strict -summary -skip ExternalSecret,TargetGroupBinding,Application,ApplicationSet,AppProject
+
+      - name: base 와 렌더링 차이
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add -q "$RUNNER_TEMP/base-src" "$BASE_SHA"
+          {
+            echo "## 렌더링 차이 (base → head)"
+            if ! scripts/ci/render-aws.sh "$RUNNER_TEMP/base-src" "$RUNNER_TEMP/base" 2>/dev/null; then
+              echo "base 는 이 스크립트로 렌더링되지 않아 비교를 건너뜁니다."
+            elif diff -ru "$RUNNER_TEMP/base" "$RUNNER_TEMP/head" > "$RUNNER_TEMP/render.diff"; then
+              echo "차이 없음 (앱 매니페스트가 바뀌지 않음)"
+            else
+              echo '```diff'
+              head -c 60000 "$RUNNER_TEMP/render.diff"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  lint:
+    name: 스크립트·워크플로 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 기존 스크립트의 스타일 경고는 두고 실제 오류만 막음
+      - name: shellcheck
+        run: find scripts -name '*.sh' -print0 | xargs -0 shellcheck -S error
+
+      # run: 안의 셸은 위 shellcheck 기준과 다르게 경고까지 잡아 끔
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color -shellcheck= -pyflakes=
