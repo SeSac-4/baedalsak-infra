@@ -128,7 +128,7 @@ terraform -chdir=terraform/persistent plan
 | 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 `helm/values/aws-image.yaml`(develop)의 태그를 배포 (입력하면 그 태그를 이 파일에 커밋한 뒤 배포). Argo CD 설치 → ApplicationSet 적용 → 6개 Synced·Healthy 대기. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
 | 18:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
 
-- 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · Single-AZ · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(Multi-AZ · 스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
+- 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · **Multi-AZ**(#45) · 자동 백업·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.
 - 예약은 Scheduler 가 정시에 시작합니다 (공휴일은 막지 않음). 끝나면(성공·실패·2시간 초과) Lambda ② 가 결과를 확인해 **실패일 때만** Discord 로 알립니다 (SNS alerts → Lambda ⑤ notify, `ALERT_EMAILS` 가 있으면 메일도) (성공은 Step Functions 실행 기록·GitHub Actions 에서 확인).
   - 제목 `[baedalsak-prod] AWS up|down OK|FAILED`

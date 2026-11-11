@@ -1,4 +1,4 @@
-# ---------- RDS PostgreSQL 16 · 개발 기간: db.t4g.micro · Single-AZ · 백업·스냅샷 없음 ----------
+# ---------- RDS PostgreSQL 16 · db.t4g.micro · Multi-AZ (#45) · 개발 기간: 백업·스냅샷 없음 ----------
 #   매일 빈 DB 로 새로 만들고 db-init(DB·계정) → 각 서비스 Flyway(테이블)로 채움 — 끌 때 데이터는 사라짐
 resource "aws_db_subnet_group" "this" {
   name       = local.name
@@ -16,8 +16,7 @@ resource "aws_db_instance" "this" {
   storage_type      = "gp3"
   storage_encrypted = true
 
-  multi_az = false # 개발 기간 Single-AZ
-  # multi_az             = true  # 운영 (설계: 유일하게 이중화, 장애 시 1~2분 자동 전환)
+  multi_az               = true # 운영 (설계: 유일하게 이중화, 장애 시 1~2분 자동 전환, #45)
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = local.p.db_parameter_group
