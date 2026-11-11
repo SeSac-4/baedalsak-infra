@@ -3,7 +3,7 @@
 # AWS 앱 매니페스트 렌더링 — Argo CD 와 같은 값 파일 순서로 helm template (클러스터 · AWS 접속 없음)
 #   사용: scripts/ci/render-aws.sh <레포 경로> <출력 디렉터리>
 #   앱 6개: helm/argocd/applicationset.yaml 의 valueFiles 순서 + valuesObject(__이름__ placeholder 그대로)
-#   캐시 Valkey: helm/argocd/valkey-cache.yaml 의 valuesObject
+#   캐시 Valkey: helm/argocd/valkey-cache.yaml 의 valuesObject · NetworkPolicy: deploy.sh 와 같은 치환
 #   store 의 helm.parameters(IMAGE_BUCKET · IMAGE_BASE_URL)도 같은 placeholder 로 넣음
 #   .github/workflows/pr-check.yml 이 PR 의 base · head 를 각각 렌더링해 비교한다
 # =============================================================================
@@ -41,3 +41,9 @@ for svc in member store order payment delivery gateway; do
 done
 
 helm template valkey-cache "$repo/helm/charts/valkey" -n __NAMESPACE__ -f "$tmp/valkey.json" > "$out/valkey-cache.yaml"
+
+# NetworkPolicy — deploy.sh 와 같은 문자열 치환 (ALB 대역은 예시 값, 실제는 SSM alb_subnet_cidrs)
+netpol="$(<"$repo/scripts/aws/networkpolicy.yaml")"
+netpol="${netpol//'${NS}'/prod}"
+blocks="$(printf '        - ipBlock: { cidr: %s }\n' 10.0.32.0/20 10.0.48.0/20)"
+printf '%s\n' "${netpol//'${ALB_IP_BLOCKS}'/$blocks}" > "$out/networkpolicy.yaml"

@@ -51,7 +51,7 @@ jobs:
       # CRD(ExternalSecret · TargetGroupBinding · Argo CD)는 스키마가 없어 건너뜀 — 나머지 기본 kind 는 스키마가 없으면 실패
       - name: kubeconform
         run: |
-          cat "$RUNNER_TEMP"/head/*.yaml scripts/aws/networkpolicy.yaml |
+          cat "$RUNNER_TEMP"/head/*.yaml |
             docker run -i --rm ghcr.io/yannh/kubeconform:v0.6.7 \
               -strict -summary -skip ExternalSecret,TargetGroupBinding,Application,ApplicationSet,AppProject
 
