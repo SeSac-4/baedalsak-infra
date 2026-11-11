@@ -1,8 +1,21 @@
 # member — AWS 에서만 쓰는 값 (Argo CD valueFiles: services/<서비스>.yaml → aws.yaml → 이 폴더 → aws-image.yaml)
-#   이전에는 scripts/aws/deploy.sh 의 --set. replica 1 · HPA 끔은 aws.yaml 기본값
+#   이전에는 scripts/aws/deploy.sh 의 --set
 
-# DB 연결 풀 5 (기본 10) — 배포 중 이전·새 파드가 겹쳐도 Σ(파드 × 풀) × 2 = 50 < RDS max_connections(t4g.micro 약 80)
-#   필요량 ≈ 최고 TPS × 쿼리 평균 시간(초) + 여유 = 50 × 0.05 ≈ 3 → 5
+# HPA 1~2 (CPU 70%) — 최대 파드는 CPU 가 아니라 RDS 연결 한도로 정함 (아래 연결 풀과 함께 바꿀 것)
+#   services/<서비스>.yaml 의 2~6 · 60~70% 는 부하 테스트 이후 값이라 여기서 모두 덮어씀
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilizationPercentage: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — gateway 와 같음
+
+# DB 연결 풀 4 (기본 10) — RDS 앱 한도 76 (t4g.micro max_connections 79 − 관리자 예약 3)
+#   최악 = DB 서비스 5 × (최대 파드 2 + 배포 maxSurge 1) × 풀 4 = 60 < 76  (풀 5 면 75 로 한도에 붙음)
+#   필요량 ≈ 최고 TPS × 쿼리 평균 시간(초) = 50 × 0.05 ≈ 2.5 → 파드 1개일 때 4 (1.6배 여유)
+#   부족하면 hikaricp_connections_pending · "Connection is not available" 로그 → 그 서비스만 조정
 #   values 파일끼리는 null 로 키를 지울 수 없어(helm) aws.yaml 이 아니라 서비스별로 둠 — gateway 는 DB 를 쓰지 않아 없음
 extraEnv:
-  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
