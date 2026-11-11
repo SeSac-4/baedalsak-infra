@@ -52,7 +52,7 @@ baedalsak-infra/
 │   │   ├── services/<서비스>.yaml     # DB 계정·schema, 사용 의존성, HPA 범위 (환경 무관)
 │   │   ├── local.yaml                # minikube + compose 의존성
 │   │   ├── aws.yaml                  # EKS 공통 값 (주소·리전처럼 Git 에 둘 수 없는 값은 deploy.sh 가 ApplicationSet 에 채움)
-│   │   ├── aws-services/             # AWS 전용 서비스별 값 (gateway: HPA 2~4 · PDB · TGB / 나머지 5개: 연결 풀 5)
+│   │   ├── aws-services/             # AWS 전용 서비스별 값 (gateway: HPA 2~4 · PDB · TGB / 나머지 5개: HPA 1~2 · 연결 풀 4)
 │   │   └── aws-image.yaml            # 앱 이미지 태그 — 앱 이미지 빌드가 커밋, Argo CD 가 감지해 배포
 │   ├── argocd/                       # Argo CD values · 앱 6개 ApplicationSet
 │   └── addons/                       # AWS 애드온 values — kube-prometheus-stack · loki · tempo · aws-for-fluent-bit
@@ -118,7 +118,7 @@ AWS 에서만 추가로 넣는 값
 | `COGNITO_ISSUER_URI` | gateway | Parameter Store → ESO → Secret |
 | `SPRING_DATA_REDIS_SSL_ENABLED` | 6개 (ElastiCache TLS) | ConfigMap |
 | `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT` | 6개 — Tempo `http://tempo.monitoring.svc.cluster.local:4318/v1/traces` | ConfigMap (`values/aws.yaml`) |
-| `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | gateway 제외 5개 — `5` (RDS 연결 수 한도) | ConfigMap (`values/aws-services/<서비스>.yaml`) |
+| `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` | gateway 제외 5개 — `4` (RDS 연결 수 한도 — HPA 최대 2 · 배포 겹침 기준 최악 60 / 76) | ConfigMap (`values/aws-services/<서비스>.yaml`) |
 | `SPRING_FLYWAY_LOCATIONS` | member (seed 위치) | ConfigMap |
 
 DB: RDS 인스턴스 1개 + 서비스별 DB 5개 (`DB_NAME` = 서비스 `db.name`, 없으면 schema 이름)
@@ -141,11 +141,12 @@ DB 계정·schema: member `member_svc/member`, store `store_svc/store`, order `o
 | 서비스 | 로컬 min~max | AWS values 결정값 | AWS 지금 (개발 기간, `values/aws.yaml` · `aws-services/<서비스>.yaml` 이 덮어씀) |
 |---|---|---|---|
 | gateway | 1~3 | 2~8 (CPU 60%) | **2~4** (CPU 70%, 3분 넘게 높을 때 확장) · PDB 최소 1 |
-| order | 1~3 | 2~10 (CPU 65%) | **1 고정** (부하 테스트 때 1~3) |
-| payment | 1~3 | 2~6 (CPU 60%) | **1 고정** (부하 테스트 때 1~3) |
-| store · delivery · member | 1~3 | 2~6 (CPU 70%) | **1 고정** |
+| order | 1~3 | 2~10 (CPU 65%) | **1~2** (CPU 70%, 3분 넘게 높을 때 확장) |
+| payment | 1~3 | 2~6 (CPU 60%) | **1~2** (같음) |
+| store · delivery · member | 1~3 | 2~6 (CPU 70%) | **1~2** (같음) |
 
-- 확장은 즉시(30초마다 최대 2배), 축소는 5분 안정화 후 분당 50%씩
+- 확장은 30초마다 최대 2배(AWS 는 3분 안정화 뒤), 축소는 5분 안정화 후 분당 50%씩
+- AWS 앱 5개의 최대 2 는 RDS 연결 한도로 정함 — 서비스 5 × (파드 2 + 배포 maxSurge 1) × 풀 4 = 60 < 76. **최대 파드를 올리면 풀도 같이 계산** (풀 5 로 두면 75)
 - requests/limits — 로컬: CPU 100m / 1, 메모리 512Mi / 512Mi · AWS: CPU 100m / 제한 없음, 메모리 768Mi / 768Mi
 - PDB — 로컬 끔, AWS gateway 켬 (최소 1개 유지)
 

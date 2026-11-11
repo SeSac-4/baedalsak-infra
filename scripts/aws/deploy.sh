@@ -6,7 +6,7 @@
 #   2) AppProject(helm/argocd/appproject.yaml) · 캐시 Valkey(valkey-cache.yaml) · ApplicationSet(applicationset.yaml) 에
 #      Git 에 둘 수 없는 값을 채워 적용 → Argo CD 가 Valkey + 6개 sync
 #   3) 6개가 그 태그로 Synced · Healthy 될 때까지 대기 (scripts/aws/argocd-wait.sh), 이어서 Valkey 대기
-#   서비스별 값(gateway HPA 2~4·PDB·TGB, 연결 풀 5)은 helm/values/aws.yaml · aws-services/ 에 있음
+#   서비스별 값(gateway HPA 2~4·PDB·TGB, 나머지 HPA 1~2·연결 풀 4)은 helm/values/aws.yaml · aws-services/ 에 있음
 #   Argo CD 는 addons.sh 가 설치 (없으면 실패)
 # =============================================================================
 set -euo pipefail

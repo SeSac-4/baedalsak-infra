@@ -203,12 +203,12 @@ Discord #alert-incident 에 **인프라 변경 배포 확인 (Argo CD) failure**
 
 설정은 `kubectl` 이 아니라 **Git 커밋 하나**로 바꾸고, 끝나면 그 커밋을 revert 합니다 (커밋 SHA = 테스트 조건 기록).
 
-1. **배포 동결** — Actions 에서 **앱 이미지 빌드** 워크플로를 Disable (또는 서버 팀에 머지 보류 공유). 테스트 중 이미지가 바뀌면 결과가 섞이고, 재배포로 이전·새 파드가 겹치면 DB 연결 수가 RDS 한도(약 80)를 넘을 수 있음 (아래 3)
+1. **배포 동결** — Actions 에서 **앱 이미지 빌드** 워크플로를 Disable (또는 서버 팀에 머지 보류 공유). 테스트 중 이미지가 바뀌면 결과가 섞이고, 재배포로 이전·새 파드가 겹치면 DB 연결 수가 RDS 한도(76)를 넘을 수 있음 (아래 3)
    - Argo CD sync window(배포 금지 시간)는 쓰지 않음 — 태그 커밋은 되는데 sync 만 막혀 대기 시간 초과 → 이미지 태그 자동 되돌리기가 돎
 2. **테스트 설정 커밋** (develop) — 커밋 후 **인프라 변경 배포 확인 (Argo CD)** 워크플로가 smoke test 로 확인
    - `helm/values/aws.yaml` `resources.requests.cpu` 100m → 250m (HPA 는 requests 대비 CPU % 로 판단 — 100m 이면 너무 일찍 늘어남)
-   - `helm/values/aws-services/order.yaml` · `payment.yaml` 에 `autoscaling: { enabled: true, minReplicas: 1, maxReplicas: 3 }` (+ 필요하면 `targetCPUUtilizationPercentage`)
-3. **DB 연결 수 확인** — 연결 풀 5 는 서비스당 파드 1개 기준. order·payment 가 3개까지 늘면 평소 45개(9 파드 × 5), 재배포가 겹치면 약 90개 → 1번 동결로 막음
+   - DB 쓰는 5개는 평소에도 HPA 1~2 · 연결 풀 4 (`helm/values/aws-services/<서비스>.yaml`). 최대 파드를 3 이상으로 올릴 때만 같은 파일의 `maxReplicas` 와 `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE` 를 **함께** 바꿈
+3. **DB 연결 수 확인** — 한도 76 (`max_connections` 79 − 관리자 예약 3). 지금 값 최악 = 5 서비스 × (파드 2 + 배포 maxSurge 1) × 풀 4 = 60. 예: order·payment 만 최대 3 → 3 × 3 × 4 + 2 × 4 × 4 = 68, 풀 5 로 두면 85 로 초과 → 1번 동결로 막음
 4. **테스트 중 미세 조정** — selfHeal 이 꺼져 있어 `kubectl scale`·`edit` 가능 (`OutOfSync` 로 표시, 다음 sync 때 Git 값으로 돌아감). 계속 쓸 값은 Git 에 커밋
 5. **끝나면** — 2번 커밋 revert → 앱 이미지 빌드 워크플로 Enable → (결정 시) `helm/argocd/applicationset.yaml` 의 `selfHeal: true`
 
