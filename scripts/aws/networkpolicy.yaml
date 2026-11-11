@@ -60,6 +60,7 @@ spec:
   ingress:
     - from:
         - podSelector: { matchLabels: { app.kubernetes.io/name: gateway } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: store } }     # 가게 폐업 전 진행 중 주문 확인 (server #176)
       ports:
         - { port: 8080, protocol: TCP }
 ---
