@@ -2,4 +2,4 @@
 #   "앱 이미지 빌드" 워크플로가 빌드 성공 시 커밋함. 손으로 고치지 않음
 #   되돌리기: 해당 커밋을 git revert (smoke test 실패 시 워크플로가 자동으로 함 — scripts/aws/rollback.sh)
 image:
-  tag: "0faf55b"
+  tag: "1808255"
