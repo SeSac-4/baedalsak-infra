@@ -92,9 +92,10 @@ data "aws_iam_policy_document" "gha_trust" {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       # 기존 형식 + immutable subject 형식(repo:<owner>@<id>/<repo>@<id>:...) — 새 레포는 후자가 기본
+      # develop 브랜치에서 실행된 워크플로만 (AWS 워크플로는 모두 develop 에서 돎). 다른 브랜치는 관리자 권한을 못 받음 (#47, QA 11-13)
       values = [
-        "repo:${var.github_repo}:*",
-        "repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:*",
+        "repo:${var.github_repo}:ref:refs/heads/develop",
+        "repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:ref:refs/heads/develop",
       ]
     }
   }
