@@ -234,3 +234,27 @@ resource "aws_route53_record" "main" {
     evaluate_target_health = false
   }
 }
+
+# ---------- CloudFront 표준 로그 v2 → S3 로그 버킷 cloudfront/ (30일, persistent/audit.tf) ----------
+#   로그 버킷이 ACL 을 끈 상태라 v1(logging_config)은 못 씀 → CloudWatch Logs 전송(v2). Lambda 없이 CloudFront 가 직접 씀
+resource "aws_cloudwatch_log_delivery_source" "cloudfront" {
+  provider     = aws.us_east_1
+  name         = "${local.name}-cloudfront"
+  log_type     = "ACCESS_LOGS"
+  resource_arn = aws_cloudfront_distribution.main.arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "cloudfront" {
+  provider      = aws.us_east_1
+  name          = "${local.name}-cloudfront-s3"
+  output_format = "w3c"
+  delivery_destination_configuration {
+    destination_resource_arn = "arn:aws:s3:::${local.p.logs_bucket}/cloudfront"
+  }
+}
+
+resource "aws_cloudwatch_log_delivery" "cloudfront" {
+  provider                 = aws.us_east_1
+  delivery_source_name     = aws_cloudwatch_log_delivery_source.cloudfront.name
+  delivery_destination_arn = aws_cloudwatch_log_delivery_destination.cloudfront.arn
+}

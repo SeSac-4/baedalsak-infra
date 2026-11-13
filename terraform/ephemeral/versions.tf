@@ -24,6 +24,15 @@ provider "aws" {
   }
 }
 
+# CloudFront 로그 전송(edge.tf)은 us-east-1 에서만 만들 수 있음
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+  default_tags {
+    tags = { Project = var.project, Env = var.env, Stack = "ephemeral", ManagedBy = "terraform" }
+  }
+}
+
 data "terraform_remote_state" "persistent" {
   backend = "s3"
   config = {

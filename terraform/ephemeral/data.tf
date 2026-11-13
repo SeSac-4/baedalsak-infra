@@ -59,6 +59,11 @@ resource "aws_mq_broker" "this" {
   auto_minor_version_upgrade = true
   apply_immediately          = true
 
+  # 일반 로그 → CloudWatch /aws/amazonmq/broker/<브로커 ID>/general (보존 14일 · S3 내보내기는 persistent Lambda ⑥)
+  logs {
+    general = true
+  }
+
   user {
     username = local.p.mq_user
     password = local.p.mq_password

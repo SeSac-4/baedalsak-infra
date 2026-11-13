@@ -6,6 +6,7 @@
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → Lambda ⑤ notify → Discord (+ ALERT_EMAILS 메일 구독)
 #   예산      : Budgets(일일) $10 넘으면 SNS alerts(경고) · $20 넘으면 SNS budget → Discord (+ 메일, budget_auto_down=true 면 Lambda ③ → 끄기)
 #   비용 알림 : 매일 09:00 KST Scheduler → Lambda ④ cost_report → Cost Explorer(이틀 전·전날, 크레딧·환불 제외) → Discord (+ ALERT_EMAILS 있으면 SES 메일)
+#   로그 보관 : 매일 03:00 KST Scheduler → Lambda ⑥ log_export → RDS · MQ 로그 그룹 보존 14일 + 전날 로그를 S3 로그 버킷(rds/ · mq/)으로 내보냄
 #   값은 콘솔에서 넣음 (Terraform 은 빈 Secret 만 만듦):
 #     <SECRET_PREFIX>/github-dispatch  GitHub fine-grained PAT (이 레포, Actions: Read and write)
 #     <SECRET_PREFIX>/seed             {"SEED_PASSWORD": "..."} prod 풀 seed 사용자 비밀번호
@@ -109,7 +110,7 @@ resource "aws_sns_topic_policy" "budget" {
   policy = data.aws_iam_policy_document.budget_topic.json
 }
 
-# ---------- Lambda ① dispatch · ② report · ③ budget_guard · ④ cost_report · ⑤ notify ----------
+# ---------- Lambda ① dispatch · ② report · ③ budget_guard · ④ cost_report · ⑤ notify · ⑥ log_export ----------
 locals {
   state_machine_arn = "arn:aws:states:${var.region}:${local.account}:stateMachine:${local.name}-power"
   github_env        = { GITHUB_TOKEN_SECRET = aws_secretsmanager_secret.github_dispatch.arn, GITHUB_REPO = var.github_repo, GITHUB_REF = var.github_ref }
@@ -157,6 +158,18 @@ locals {
       env        = { DISCORD_WEBHOOK_SECRET = aws_secretsmanager_secret.discord_webhook.arn }
       timeout    = 30
       statements = [local.read_discord]
+    }
+    log_export = {
+      env     = { NAME = local.name, BUCKET = aws_s3_bucket.logs.id }
+      timeout = 600 # 내보내기는 계정당 1건씩 → 로그 그룹 수만큼 기다림
+      statements = [
+        { Effect = "Allow", Action = ["logs:DescribeLogGroups", "logs:DescribeExportTasks"], Resource = "*" }, # 리소스 단위 권한 없음
+        {
+          Effect   = "Allow"
+          Action   = ["logs:DescribeLogStreams", "logs:PutRetentionPolicy", "logs:CreateExportTask"]
+          Resource = ["arn:aws:logs:${var.region}:${local.account}:log-group:/aws/rds/instance/${local.name}/*", "arn:aws:logs:${var.region}:${local.account}:log-group:/aws/amazonmq/broker/*"]
+        },
+      ]
     }
   }
 }
@@ -417,7 +430,7 @@ resource "aws_iam_role_policy" "scheduler_cost" {
   role = aws_iam_role.scheduler_cost.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = "lambda:InvokeFunction", Resource = aws_lambda_function.this["cost_report"].arn }]
+    Statement = [{ Effect = "Allow", Action = "lambda:InvokeFunction", Resource = [aws_lambda_function.this["cost_report"].arn, aws_lambda_function.this["log_export"].arn] }]
   })
 }
 
@@ -428,6 +441,18 @@ resource "aws_scheduler_schedule" "cost_report" {
   flexible_time_window { mode = "OFF" }
   target {
     arn      = aws_lambda_function.this["cost_report"].arn
+    role_arn = aws_iam_role.scheduler_cost.arn
+  }
+}
+
+# ---------- 로그 내보내기 (매일 03:00 KST → Lambda ⑥, 환경이 꺼져 있는 시간) · 역할은 비용 알림과 같이 씀 ----------
+resource "aws_scheduler_schedule" "log_export" {
+  name                         = "${local.name}-log-export"
+  schedule_expression          = "cron(0 3 * * ? *)"
+  schedule_expression_timezone = "Asia/Seoul"
+  flexible_time_window { mode = "OFF" }
+  target {
+    arn      = aws_lambda_function.this["log_export"].arn
     role_arn = aws_iam_role.scheduler_cost.arn
   }
 }

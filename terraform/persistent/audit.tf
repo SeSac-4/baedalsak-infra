@@ -1,4 +1,4 @@
-# ---------- 로그 버킷 (CloudTrail · ALB 액세스 로그) · CloudTrail ----------
+# ---------- 로그 버킷 (CloudTrail · ALB 액세스 로그 · CloudFront 로그 · RDS·MQ 로그 내보내기) · CloudTrail ----------
 resource "aws_s3_bucket" "logs" {
   bucket = "${local.name}-logs-${local.account}"
 }
@@ -20,11 +20,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
 
 resource "aws_s3_bucket_lifecycle_configuration" "logs" {
   bucket = aws_s3_bucket.logs.id
-  rule {
-    id     = "alb-30d"
-    status = "Enabled"
-    filter { prefix = "alb/" }
-    expiration { days = 30 }
+  # CloudWatch 에는 14일, S3 에는 30일 (ALB 와 같음)
+  dynamic "rule" {
+    for_each = ["alb", "cloudfront", "rds", "mq"]
+    content {
+      id     = "${rule.value}-30d"
+      status = "Enabled"
+      filter { prefix = "${rule.value}/" }
+      expiration { days = 30 }
+    }
   }
 }
 
@@ -77,6 +81,50 @@ data "aws_iam_policy_document" "logs" {
       test     = "StringEquals"
       variable = "aws:SourceArn"
       values   = [local.trail_arn]
+    }
+  }
+  # RDS · MQ 로그 내보내기 (Lambda ⑥ → CloudWatch Logs CreateExportTask)
+  statement {
+    sid       = "LogsExportAcl"
+    actions   = ["s3:GetBucketAcl"]
+    resources = [aws_s3_bucket.logs.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.region}.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account]
+    }
+  }
+  statement {
+    sid       = "LogsExportWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.logs.arn}/rds/*", "${aws_s3_bucket.logs.arn}/mq/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.region}.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account]
+    }
+  }
+  # CloudFront 표준 로그 v2 (ephemeral/edge.tf) — 버킷이 ACL 을 끈 상태(BucketOwnerEnforced)라 기존 방식(v1)은 못 씀
+  statement {
+    sid       = "CloudFrontLogDelivery"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.logs.arn}/cloudfront/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account]
     }
   }
 }
