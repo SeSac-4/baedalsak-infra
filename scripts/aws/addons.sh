@@ -26,7 +26,7 @@ helm repo update >/dev/null
 
 echo "== AWS Load Balancer Controller"
 helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
+  -n kube-system --version 3.6.2 \
   --set clusterName="$CLUSTER" \
   --set region="$REGION" \
   --set vpcId="$VPC_ID" \
@@ -37,7 +37,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
 
 echo "== Cluster Autoscaler"
 helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
-  -n kube-system \
+  -n kube-system --version 9.60.0 \
   --set autoDiscovery.clusterName="$CLUSTER" \
   --set awsRegion="$REGION" \
   --set rbac.serviceAccount.create=true \
@@ -50,7 +50,7 @@ helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
 
 echo "== External Secrets Operator (controller만)"
 helm upgrade --install external-secrets external-secrets/external-secrets \
-  -n external-secrets --create-namespace \
+  -n external-secrets --create-namespace --version 2.15.0 \
   --set installCRDs=true \
   --set replicaCount=1 \
   --set webhook.create=false \
@@ -85,7 +85,7 @@ EOF
 
 echo "== metrics-server"
 helm upgrade --install metrics-server metrics-server/metrics-server \
-  -n kube-system --wait --timeout 10m
+  -n kube-system --version 3.14.0 --wait --timeout 10m
 
 # Fluent Bit 보다 먼저 — 수집기가 뜨자마자 보낼 곳이 있게
 echo "== Loki (monitoring) — 앱 로그 저장소, S3 14일"
@@ -111,7 +111,7 @@ helm upgrade --install tempo grafana-community/tempo \
 
 echo "== Fluent Bit → Loki"
 helm upgrade --install aws-for-fluent-bit eks/aws-for-fluent-bit \
-  -n kube-system \
+  -n kube-system --version 0.2.0 \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-for-fluent-bit \
   -f "$(dirname "$0")/../../helm/addons/aws-for-fluent-bit.yaml" \
