@@ -17,7 +17,7 @@ aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" >/dev/nu
 # 인프라 관리자 = admin (매일 바뀜) · 개발팀 = 읽기 전용 dev (Secrets Manager <SECRET_PREFIX>/argocd-dev, 고정)
 #   개발팀은 argocd 네임스페이스 Secret 을 읽을 권한이 없음 (terraform/ephemeral/eks.tf · addons.sh Role)
 if kubectl -n argocd auth can-i get secret/argocd-initial-admin-secret >/dev/null 2>&1; then
-  USER_NAME=admin
+  USER_NAME="admin"
   PW="$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 else
   USER_NAME=dev

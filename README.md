@@ -22,7 +22,7 @@
 
 AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다** (EventBridge Scheduler → Step Functions → Lambda → GitHub Actions, Asia/Seoul).
 켜기·끄기 결과는 **실패했을 때만** 메일로 옵니다. 매일 09:00 에 이틀 전·전날 서비스별 비용 메일이 옵니다.
-예산(Budgets)은 하루 $10 · $20 넘으면 메일만 보냅니다 (자동 끄기는 꺼 둠 — `budget_auto_down`).
+예산(Budgets)은 하루 $10 · $20 넘으면 Discord #alert-cost 로 알립니다 (`ALERT_EMAILS` 가 있으면 메일도 · 자동 끄기는 꺼 둠 — `budget_auto_down`).
 구성·처음 설정·실행 순서는 [`docs/aws-runbook.md`](docs/aws-runbook.md), 환경 변수 목록은 [`.env.example`](.env.example).
 
 | Actions 워크플로 | 실행 | 하는 일 |
