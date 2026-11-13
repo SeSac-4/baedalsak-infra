@@ -23,5 +23,8 @@ ingress:
 # secretKeys:                    # 비밀값 (make secret 이 .env 에서 넣음 / 운영 Secrets Manager)
 #   - JWT_SECRET                 # 토큰 서명 키 (gateway 검증·member 발급)
 
+extraEnv:
+  RATE_LIMIT_ENABLED: "false"   # 요청 제한 끄기 — 부하 테스트 동안만 (로컬·AWS 공통, 끝나면 이 커밋 revert, #57)
+
 externalSecretSsm:
   COGNITO_ISSUER_URI: cognito_issuer_uri
