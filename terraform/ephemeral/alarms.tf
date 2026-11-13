@@ -18,6 +18,12 @@ locals {
       namespace = "AWS/RDS", metric = "FreeStorageSpace", stat = "Minimum", op = "LessThanThreshold", threshold = 2147483648 # 2GiB
       dims      = { DBInstanceIdentifier = aws_db_instance.this.identifier }
     }
+    # 연결 한도: max_connections 79 − 관리자 예약 3 = 앱 76. 90% ≈ 68 (AWS 권장 알람 90~95%). 최악 계산값 60 (5 × (HPA 2 + surge 1) × 풀 4) — #52
+    #   인스턴스 클래스를 바꾸면 한도가 바뀌므로 같이 조정 (small 은 약 180)
+    rds-connections = {
+      namespace = "AWS/RDS", metric = "DatabaseConnections", stat = "Maximum", op = "GreaterThanThreshold", threshold = 68
+      dims      = { DBInstanceIdentifier = aws_db_instance.this.identifier }
+    }
     redis-memory = {
       namespace = "AWS/ElastiCache", metric = "DatabaseMemoryUsagePercentage", stat = "Maximum", op = "GreaterThanThreshold", threshold = 80 # noeviction → 가득 차면 쓰기 실패
       dims      = { CacheClusterId = tolist(aws_elasticache_replication_group.this.member_clusters)[0] }

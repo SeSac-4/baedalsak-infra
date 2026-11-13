@@ -150,7 +150,7 @@ grafana:
             {{- if eq .Status "firing" }}[알림 발생] 배달싹 prod — {{ len .Alerts.Firing }}건{{ else }}[해결됨] 배달싹 prod — {{ len .Alerts.Resolved }}건{{ end }}
             ==================================================
             {{ range .Alerts }}
-            ■ {{ .Labels.alertname }}{{ if .Labels.service }}  ({{ .Labels.service }}){{ end }}{{ if .Labels.name }}  ({{ .Labels.name }} · {{ .Labels.health_status }}){{ end }}
+            ■ {{ .Labels.alertname }}{{ if .Labels.service }}  ({{ .Labels.service }}){{ end }}{{ if .Labels.name }}  ({{ .Labels.name }} · {{ .Labels.health_status }}){{ end }}{{ if .Labels.pod }}  ({{ .Labels.namespace }}/{{ .Labels.pod }}){{ end }}
               상태 : {{ if eq .Status "firing" }}발생{{ else }}해결{{ end }}
               내용 : {{ .Annotations.summary }}
               값   : {{ with .Values.A }}{{ printf "%.2f" . }}{{ else }}-{{ end }}
@@ -308,6 +308,27 @@ grafana:
                 - refId: C
                   datasourceUid: __expr__
                   model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+        # 파드 재시작 반복 (#52) — OOMKilled · CrashLoop (11-11 Argo CD controller OOM 8회가 알림 없이 지나감). 제목에 "비용" 없음 → Discord #alert-incident
+        - orgId: 1
+          name: pods
+          folder: 배달싹
+          interval: 1m
+          rules:
+            - uid: pod-restarts
+              title: 파드 재시작 반복 (OOMKilled · CrashLoop)
+              condition: C
+              for: 0m
+              noDataState: OK
+              execErrState: OK
+              annotations: { summary: "10분 안에 3번 이상 재시작 — kubectl describe pod 의 Last State(OOMKilled 등) · Grafana Loki 로그 확인" }
+              data:
+                - refId: A
+                  relativeTimeRange: { from: 600, to: 0 }
+                  datasourceUid: prometheus
+                  model: { refId: A, instant: true, expr: 'sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace=~"prod|argocd|monitoring|kube-system|external-secrets"}[10m]))' }
+                - refId: C
+                  datasourceUid: __expr__
+                  model: { refId: C, type: threshold, expression: A, conditions: [{ evaluator: { type: gt, params: [2] } }] }
   # 앱 로그는 Loki, 추적은 Tempo, AWS 서비스 로그(Lambda·Step Functions 등)·지표(RDS·MQ 등)는 CloudWatch
   additionalDataSources:
     # 로그 ↔ 추적 연결: 로그 JSON 의 "traceId" → Tempo 추적 열기 / 추적의 span → 그 서비스 Loki 로그 ($$ = provisioning 변수 치환 막음)
