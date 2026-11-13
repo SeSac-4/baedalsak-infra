@@ -2,7 +2,7 @@
 #   치환 값(deploy.sh 문자열 치환): NS = 앱 네임스페이스 · ALB_IP_BLOCKS = SSM alb_subnet_cidrs 를 ipBlock 줄로 펼친 값
 #   주석에 달러+중괄호 표기를 쓰지 말 것 — 주석 안도 치환돼 YAML 이 깨짐
 #   서비스 간 허용 = 설계서 '동기 호출' 탭 (order → store·member·payment, delivery → member)
-#   알려진 한계: ALB 와 파드가 같은 서브넷이라 ALB 대역 허용에 파드 IP 도 포함 → 클러스터 안 파드가 gateway 에는 닿음
+#   ALB 는 전용 서브넷(/27 ×2, terraform/ephemeral/network.tf)이라 ALB 대역 허용에 파드 IP 는 들어가지 않음
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: { name: default-deny-ingress, namespace: ${NS} }

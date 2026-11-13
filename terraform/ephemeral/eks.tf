@@ -18,7 +18,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
+  subnet_ids = local.eks_subnets # 노드 · 파드 · 컨트롤 플레인 ENI (ALB 서브넷 제외)
 
   addons = {
     # NetworkPolicy 적용 (aws-node 안의 network policy agent) — monitoring 의 Grafana 를 앱 파드에서 못 들어오게

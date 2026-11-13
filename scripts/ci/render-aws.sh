@@ -45,5 +45,5 @@ helm template valkey-cache "$repo/helm/charts/valkey" -n __NAMESPACE__ -f "$tmp/
 # NetworkPolicy — deploy.sh 와 같은 문자열 치환 (ALB 대역은 예시 값, 실제는 SSM alb_subnet_cidrs)
 netpol="$(<"$repo/scripts/aws/networkpolicy.yaml")"
 netpol="${netpol//'${NS}'/prod}"
-blocks="$(printf '        - ipBlock: { cidr: %s }\n' 10.0.32.0/20 10.0.48.0/20)"
+blocks="$(printf '        - ipBlock: { cidr: %s }\n' 10.0.66.0/27 10.0.66.32/27)"
 printf '%s\n' "${netpol//'${ALB_IP_BLOCKS}'/$blocks}" > "$out/networkpolicy.yaml"

@@ -1,4 +1,13 @@
-# VPC 10.0.0.0/16 — public /24 ×2 · EKS private /20 ×2 · data /24 ×2, NAT 1개(azs[0])
+# VPC 10.0.0.0/16 — public /24 ×2 · EKS private /20 ×2 · ALB private /27 ×2 · data /24 ×2 (서브넷 8개), NAT 1개(azs[0])
+#   ALB 전용 서브넷: NetworkPolicy 의 ALB 허용 대역(alb_subnet_cidrs)에 파드 IP 가 섞이지 않게 분리
+#   private 라우트 테이블(NAT)을 같이 씀 — ALB 의 Cognito 로그인(authenticate-cognito)이 Cognito 엔드포인트로 나가야 함
+locals {
+  eks_subnet_cidrs = ["10.0.32.0/20", "10.0.48.0/20"]
+  alb_subnet_cidrs = ["10.0.66.0/27", "10.0.66.32/27"]
+  eks_subnets      = slice(module.vpc.private_subnets, 0, 2)
+  alb_subnets      = slice(module.vpc.private_subnets, 2, 4)
+}
+
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 6.0"
@@ -8,7 +17,7 @@ module "vpc" {
   azs  = local.azs
 
   public_subnets   = ["10.0.0.0/24", "10.0.1.0/24"]
-  private_subnets  = ["10.0.32.0/20", "10.0.48.0/20"]
+  private_subnets  = concat(local.eks_subnet_cidrs, local.alb_subnet_cidrs) # 앞 2개 EKS · 뒤 2개 ALB (azs 순서)
   database_subnets = ["10.0.64.0/24", "10.0.65.0/24"]
 
   create_database_subnet_group       = false
@@ -20,7 +29,7 @@ module "vpc" {
   enable_dns_support   = true
 
   public_subnet_suffix   = "public"
-  private_subnet_suffix  = "eks"
+  private_subnet_names   = [for i, az in concat(local.azs, local.azs) : "${local.name}-${i < 2 ? "eks" : "alb"}-${az}"]
   database_subnet_suffix = "data"
 }
 

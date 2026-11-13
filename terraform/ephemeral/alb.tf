@@ -6,7 +6,7 @@ resource "aws_lb" "internal" {
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = module.vpc.private_subnets
+  subnets            = local.alb_subnets # ALB 전용 /27 ×2 (network.tf)
   idle_timeout       = 60
 
   drop_invalid_header_fields = true

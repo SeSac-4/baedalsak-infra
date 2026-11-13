@@ -125,7 +125,7 @@ locals {
     # addons.sh 의 Grafana · Argo CD TargetGroupBinding · NetworkPolicy
     grafana_target_group_arn = aws_lb_target_group.grafana.arn
     argocd_target_group_arn  = aws_lb_target_group.argocd.arn
-    alb_subnet_cidrs         = join(",", module.vpc.private_subnets_cidr_blocks)
+    alb_subnet_cidrs         = join(",", local.alb_subnet_cidrs)
   }
 }
 

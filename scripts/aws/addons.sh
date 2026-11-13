@@ -192,7 +192,7 @@ spec:
   targetType: ip
 EOF
 
-# ALB 서브넷 → Grafana 3000. ALB 는 파드와 같은 서브넷이라 이 대역의 파드도 함께 허용됨
+# ALB 서브넷(전용 /27 ×2) → Grafana 3000
 ALB_CIDRS="$(ssm alb_subnet_cidrs)"
 kubectl apply -f - <<EOF
 apiVersion: networking.k8s.io/v1
@@ -264,7 +264,7 @@ rm -f "$ARGOCD_LINKS"
 #   포트는 숫자로 — EKS VPC CNI 네트워크 정책은 이름 붙은 포트를 쓰면 Service 에도 같은 이름이어야 하는데 차트 Service 이름이 다름
 #   repo-server 8081 ← server · controller · applicationset / redis 6379 ← server · repo-server · controller
 #   메트릭 controller 8082 · server 8083 · repo-server 8084 ← monitoring(Prometheus)
-#   server 8080(UI·API)은 ALB 서브넷에서만 → 앱 파드가 로그인 API 에 직접 못 들어옴 (ALB 와 같은 서브넷 파드는 Grafana 와 같은 한계)
+#   server 8080(UI·API)은 ALB 서브넷에서만 → 앱 파드가 로그인 API 에 직접 못 들어옴
 #   applicationset-controller 는 들어오는 연결이 필요 없어 기본 차단만 받음
 kubectl apply -f - <<EOF
 apiVersion: networking.k8s.io/v1
