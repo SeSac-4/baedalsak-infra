@@ -10,7 +10,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — gateway 와 같음
+      stabilizationWindowSeconds: 60   # gateway 와 같음 (11-13 180 → 60)
 
 # DB 연결 풀 4 (기본 10) — RDS 앱 한도 76 (t4g.micro max_connections 79 − 관리자 예약 3)
 #   최악 = DB 서비스 5 × (최대 파드 2 + 배포 maxSurge 1) × 풀 4 = 60 < 76  (풀 5 면 75 로 한도에 붙음)

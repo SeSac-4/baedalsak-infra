@@ -10,7 +10,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 180  # JVM 기동 직후 CPU 급증(1~2분)으로 늘리지 않게 — 3분 넘게 높을 때만 확장
+      stabilizationWindowSeconds: 60   # 1분 넘게 높을 때 확장 (11-13 180 → 60, requests 250m 과 함께 — 기동 급증은 requests 로 흡수)
 
 pdb:
   enabled: true
