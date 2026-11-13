@@ -1,6 +1,6 @@
 # =============================================================================
 # PR 검사 — develop 로 가는 PR 을 머지 전에 확인 (AWS · 클러스터 접속 없음)
-#   develop 은 ruleset 으로 PR 필수 + 이 워크플로의 두 job 통과 필수 (이미지 태그 커밋을 push 하는 github-actions[bot] 은 예외)
+#   PR 을 올렸을 때만 실행 (ruleset 미적용 — develop 직접 push 도 그대로 가능, 11-13 결정)
 #   render : Argo CD 와 같은 값 순서로 helm template (scripts/ci/render-aws.sh)
 #            → "<nil>" 검사 → kubeconform 스키마 검사 → base 와 렌더링 차이를 Summary 에 표시
 #   lint   : shellcheck(오류만) · actionlint
@@ -51,7 +51,8 @@ jobs:
       # CRD(ExternalSecret · TargetGroupBinding · Argo CD)는 스키마가 없어 건너뜀 — 나머지 기본 kind 는 스키마가 없으면 실패
       - name: kubeconform
         run: |
-          cat "$RUNNER_TEMP"/head/*.yaml |
+          # 파일마다 앞에 --- 를 넣어 이어 붙임 (첫 문서에 --- 가 없는 파일이 앞 파일의 마지막 문서와 합쳐지지 않게)
+          awk 'FNR==1{print "---"}1' "$RUNNER_TEMP"/head/*.yaml |
             docker run -i --rm ghcr.io/yannh/kubeconform:v0.6.7 \
               -strict -summary -skip ExternalSecret,TargetGroupBinding,Application,ApplicationSet,AppProject
 
