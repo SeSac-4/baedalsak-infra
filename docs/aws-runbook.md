@@ -95,7 +95,7 @@ terraform -chdir=terraform/persistent plan
 | `PROJECT` | ✅ | `baedalsak` |
 | `ENV_NAME` | ✅ | `prod` |
 | `AZS` | ✅ | `["ap-northeast-2a","ap-northeast-2c"]` |
-| `KUBERNETES_VERSION` | ✅ | `1.35` |
+| `KUBERNETES_VERSION` | ✅ | `1.37` (Cluster Autoscaler 1.37 과 맞춤, 11-13 #51) |
 | `TF_STATE_BUCKET` | ✅ **Secret** | bootstrap output `state_bucket` (계정 번호 포함 → 공개 로그 노출 방지로 Secret) |
 | `AWS_ROLE_ARN` | ✅ **Secret** | bootstrap output `github_actions_role_arn` (계정 번호 포함 → Secret) |
 | `SERVER_REPO` | ✅ (images) | `SeSac-4/baedalsak-server` |

@@ -198,7 +198,7 @@ curl -i http://localhost:18080/api/v1/stores
 | 항목 | 상태 |
 |---|---|
 | DynamoDB 사용 서비스 | 현재 주석 처리 (목록: `baedalsak-server/docs/backend-infra-rules.md` 9번). 정해지면 `services/*.yaml` 에 `dynamodb.enabled: true` (운영은 `serviceAccount.irsa: true` 도) |
-| 로컬 쿠버네티스 버전 | EKS 는 1.35 (레포 변수 `KUBERNETES_VERSION`). minikube 는 자리만 둠 (`K8S_VERSION`) |
+| 로컬 쿠버네티스 버전 | EKS 는 1.37 (레포 변수 `KUBERNETES_VERSION`). minikube 는 자리만 둠 (`K8S_VERSION`) |
 | gateway 의 RabbitMQ 사용 여부 | 쓰지 않으면 `services/gateway.yaml` 에 `rabbitmq.enabled: false` |
 | 메일 | SES 샌드박스(인증된 주소만 수신) — 프로덕션 액세스 요청 전. 템플릿은 앱 안(payment)에서 렌더링으로 결정. DMARC 레코드 없음 |
 | 매일 끄기 때 MQ 잔여 메시지 | 브로커와 함께 사라짐 — 손실 허용 여부 미정 |
