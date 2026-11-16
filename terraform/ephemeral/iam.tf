@@ -232,6 +232,16 @@ resource "aws_iam_role_policy" "member" {
         Action   = "sns:Publish"
         Resource = "arn:aws:sns:*:*:*"
       },
+      {
+        # 가입 전 이메일 인증 코드 메일 (#61, server #207). 발신은 팀 공통 no-reply 주소만
+        #   샌드박스에서는 받는 주소 identity 에도 권한이 필요 → 계정의 identity 전체(identity/*) + 발신 주소 조건으로 좁힘
+        Effect   = "Allow"
+        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+        Resource = "arn:aws:ses:${var.region}:${local.account}:identity/*"
+        Condition = {
+          StringEquals = { "ses:FromAddress" = "no-reply@${local.p.domain_name}" }
+        }
+      },
     ]
   })
 }

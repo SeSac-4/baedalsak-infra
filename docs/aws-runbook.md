@@ -357,7 +357,7 @@ content_security_policy {
 | 사용자 풀 (`terraform/persistent/cognito.tf`) | `<NAME>`(prod, 삭제 보호) · `<PROJECT>-local`(로컬 개발) — **Lite** 요금제, 이메일은 별칭(alias), self sign-up 끔, 그룹 CUSTOMER·OWNER·RIDER |
 | 앱 클라이언트 | `ALLOW_ADMIN_USER_PASSWORD_AUTH` + `ALLOW_REFRESH_TOKEN_AUTH`, 토큰 폐기 켬, 시크릿 없음, access 30분 · refresh 14일 |
 | 앱 환경 변수 | ESO 가 SSM `<SSM_PREFIX>/cognito_*` 를 서비스 Secret 에 담아 주입 (ClusterSecretStore `aws-parameter-store`, 값 `externalSecretSsm`) — member `COGNITO_USER_POOL_ID`·`COGNITO_CLIENT_ID`, gateway `COGNITO_ISSUER_URI` (`AWS_REGION` 은 차트가 공통 주입) |
-| member 권한 | Pod Identity `prod/member` → 역할 `<NAME>-member-cognito` — prod 풀 Admin 6개(Create·SetPassword·AddToGroup·Delete·InitiateAuth·UserGlobalSignOut) + 휴대폰 인증 문자 `sns:Publish`(전화번호만, 토픽은 Deny · #39). RevokeToken 은 IAM 불필요 |
+| member 권한 | Pod Identity `prod/member` → 역할 `<NAME>-member-cognito` — prod 풀 Admin 6개(Create·SetPassword·AddToGroup·Delete·InitiateAuth·UserGlobalSignOut) + 휴대폰 인증 문자 `sns:Publish`(전화번호만, 토픽은 Deny · #39) + 가입 전 이메일 인증 메일 `ses:SendEmail`(발신 `no-reply@<DOMAIN_NAME>` 만 · #61). RevokeToken 은 IAM 불필요 |
 | 매일 정리 | 켜기(up) DB 초기화 직후 `scripts/aws/cognito-cleanup.sh` — prod 풀 **username 1000 이상 삭제** (DB 가 매일 새로 떠 member id 가 1000 부터 재사용) |
 | seed 사용자 | username 1~999 (고객 1·2 · 사장님 101·102 · 라이더 201·202) — prod 풀에 1회 생성 후 유지, 비밀번호 `<SECRET_PREFIX>/seed` |
 | 로컬 풀 | IAM 사용자 `sesac-d1`~`sesac-d5`(팀원 전원) 에 Admin API 권한 — 풀 ID·클라이언트 ID 는 `terraform -chdir=terraform/persistent output` 또는 콘솔 |
@@ -370,7 +370,7 @@ content_security_policy {
 | 진입 | CloudFront 는 persistent | CloudFront 배포·VPC origin 은 **ephemeral** (ALB 와 함께 매일 생성·삭제) → 꺼져 있는 시간엔 도메인도 응답 없음 | 상시 접속이 필요해지면 재검토 |
 | ALB 80 | 443 만 | 80 은 VPC 안 전용으로 남김 (smoke test · Bastion 터널) | 터널을 HTTPS 로 바꾸면 제거 |
 | 인증 | Cognito | member 는 Cognito Admin API 사용(3번 아래 "Cognito 인증" 절), gateway `JWT_SECRET` 주입 제거 — **JWKS 검증은 server #23 머지 전까지 미구현** | server #23 머지 |
-| 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
+| 메일 | SES | 도메인 자격·DKIM 생성, **샌드박스**(검증된 주소만) · Cognito 메일은 기본 발송(일 50통) · member 이메일 인증 메일(#61)을 받을 팀원 테스트 주소는 콘솔 SES → 자격 증명 생성(이메일)으로 수동 등록 후 확인 메일 링크 1회 클릭 (주소를 공개 레포에 남기지 않으려고 Terraform 밖) | 콘솔에서 프로덕션 액세스 요청 → Cognito 를 SES 발송으로 |
 | MQ 계정 | (결정 없음) | 앱이 브로커 관리자 계정 사용 | 서비스별 계정 필요 시 mq-init 에 추가 |
 | 토스 키 | Secrets Manager | 시크릿 키: `<SECRET_PREFIX>/payment` 의 `TOSS_SECRET_KEY` 가 자리표시자 · 클라이언트 키: SSM `<SSM_PREFIX>/toss_client_key` 가 토스 문서용 테스트 키(프론트 빌드 때 읽음) | 둘 다 콘솔에서 **같은 토스 계정의 짝**으로 교체 (Terraform 이 덮어쓰지 않음) → 클라이언트 키를 바꾸면 "프론트 배포" 다시 실행 |
 | Redis TLS | 앱 설정 | `SPRING_DATA_REDIS_SSL_ENABLED=true` 환경 변수로 켬 | 협의 6번 (`REDIS_SESSION_SSL_ENABLED`) 반영 시 교체 |
