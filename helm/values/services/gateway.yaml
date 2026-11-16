@@ -25,3 +25,4 @@ ingress:
 
 externalSecretSsm:
   COGNITO_ISSUER_URI: cognito_issuer_uri
+  COGNITO_CLIENT_ID: cognito_client_id      # 토큰 client_id 검사용 (server gateway, #59). SSM 값은 member 와 같음
