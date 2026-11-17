@@ -19,3 +19,11 @@ autoscaling:
 #   values 파일끼리는 null 로 키를 지울 수 없어(helm) aws.yaml 이 아니라 서비스별로 둠 — gateway 는 DB 를 쓰지 않아 없음
 extraEnv:
   SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+
+# 카카오 REST 키 — 가게 주소 → 좌표 (카카오 로컬 API, https://dapi.kakao.com:443)
+#   delivery 와 같은 키: Secrets Manager <SECRET_PREFIX>/kakao (값은 콘솔 · CLI 로 넣음)
+#   비어 있어도 store 는 정상 기동 · 좌표만 저장 안 됨 → 로그 "store location backfill done/skipped" 로 확인
+secretKeys:
+  - KAKAO_REST_API_KEY
+externalSecretFrom:
+  KAKAO_REST_API_KEY: kakao
