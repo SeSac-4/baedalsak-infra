@@ -1,6 +1,7 @@
 # =============================================================================
 # kube-prometheus-stack (namespace monitoring) — scripts/aws/addons.sh 가 설치
-#   디스크 없음(EBS CSI 없음 → PVC 금지): Prometheus·Grafana 모두 emptyDir, 매일 끄기 때 함께 사라짐
+#   Prometheus = 고정 EBS(persistent/main.tf, PV prometheus-data 는 addons.sh) → 매일 끄고 켜도 15일 유지
+#   Grafana = 디스크 없음 (대시보드는 addons.sh 가 ConfigMap 으로 매번 등록)
 #   알람은 기존 CloudWatch → SNS → 메일 → Alertmanager 끔
 #   Grafana 는 https://<DOMAIN_NAME>/grafana — CloudFront → ALB(운영자 Cognito 인증) → 파드 (TargetGroupBinding 은 addons.sh)
 #   비상 접속은 tunnel.sh grafana + 내장 admin (ESO Secret grafana-admin)
@@ -16,9 +17,18 @@ kubeProxy: { enabled: false }
 
 prometheus:
   prometheusSpec:
-    retention: 1d
+    retention: 15d
+    retentionSize: 17GB # 볼륨 20GiB 가 차기 전에 오래된 것부터 지움
     scrapeInterval: 30s
-    # storageSpec 없음 → emptyDir
+    # addons.sh 가 만든 고정 PV 에만 붙음 (StorageClass 없음 → 새 볼륨을 만들지 않음)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: ""
+          volumeName: prometheus-data
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: { storage: 20Gi }
     resources:
       requests: { cpu: 100m, memory: 512Mi }
       limits: { memory: 1Gi }

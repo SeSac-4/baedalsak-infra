@@ -445,3 +445,20 @@ output "ops_cognito_alb_client_id" {
 output "ops_cognito_domain_prefix" {
   value = aws_cognito_user_pool_domain.ops.domain
 }
+
+# ---------- Prometheus 지표 저장소 (EBS gp3 20GiB, azs[0]) — 클러스터는 매일 새로 떠도 볼륨은 유지 ----------
+#   addons.sh 가 고정 PV 로 붙임 (EBS CSI 애드온 = ephemeral/eks.tf). 보관 15일 (helm/addons/kube-prometheus-stack.yaml)
+#   AZ 하나에 묶이므로 Prometheus 파드는 azs[0] 노드에만 뜸
+resource "aws_ebs_volume" "prometheus" {
+  availability_zone = var.azs[0]
+  size              = 20
+  type              = "gp3"
+  encrypted         = true
+  tags              = { Name = "${local.name}-prometheus" }
+}
+
+resource "aws_ssm_parameter" "prometheus_volume_id" {
+  name  = "${local.ssm_prefix}/prometheus_volume_id"
+  type  = "String"
+  value = aws_ebs_volume.prometheus.id
+}

@@ -117,7 +117,27 @@ helm upgrade --install aws-for-fluent-bit eks/aws-for-fluent-bit \
   -f "$(dirname "$0")/../../helm/addons/aws-for-fluent-bit.yaml" \
   --wait --timeout 10m
 
-echo "== Prometheus·Grafana (monitoring) — 디스크 없음, /grafana 경로로 노출(ALB Cognito 인증)"
+echo "== Prometheus 고정 EBS → PV prometheus-data (persistent/main.tf, 클러스터가 바뀌어도 같은 볼륨)"
+PROM_VOL="$(ssm prometheus_volume_id)"
+PROM_AZ="$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$PROM_VOL" --query 'Volumes[0].AvailabilityZone' --output text)"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata: { name: prometheus-data }
+spec:
+  capacity: { storage: 20Gi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain # 클러스터를 지워도 EBS 는 terraform persistent 가 관리
+  storageClassName: ""
+  csi: { driver: ebs.csi.aws.com, volumeHandle: ${PROM_VOL}, fsType: ext4 }
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - { key: topology.kubernetes.io/zone, operator: In, values: [${PROM_AZ}] }
+EOF
+
+echo "== Prometheus·Grafana (monitoring) — Prometheus 고정 EBS · Grafana 디스크 없음, /grafana 경로로 노출(ALB Cognito 인증)"
 # Grafana admin: Secrets Manager <SECRET_PREFIX>/grafana → Secret grafana-admin (values 에 비밀번호 없음)
 # Grafana OAuth: Secrets Manager <SECRET_PREFIX>/ops-cognito-grafana → Secret grafana-oauth (키 이름 = GF_* 환경 변수)
 kubectl apply -f - <<EOF

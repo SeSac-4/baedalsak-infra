@@ -58,6 +58,12 @@ variable "db_snapshot_identifier" {
   default = null
 }
 
+# Valkey 복원할 최종 스냅샷 (aws-stack.yml 이 최신 것을 넘김, 없으면 빈 상태로 생성)
+variable "redis_snapshot_name" {
+  type    = string
+  default = null
+}
+
 # EKS 개발팀 접근 (IAM 사용자 ARN) — 권한은 eks.tf access_entries
 variable "team_member_arns" {
   description = "EKS 접근 개발팀 ARN JSON 배열 (TEAM_MEMBER_ARNS Secret)"

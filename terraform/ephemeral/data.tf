@@ -1,5 +1,7 @@
-# ---------- RDS PostgreSQL 16 · db.t4g.micro · Multi-AZ (#45) · 개발 기간: 백업·스냅샷 없음 ----------
-#   매일 빈 DB 로 새로 만들고 db-init(DB·계정) → 각 서비스 Flyway(테이블)로 채움 — 끌 때 데이터는 사라짐
+# ---------- RDS PostgreSQL 16 · db.t4g.micro · Multi-AZ (#45) · 운영: 끌 때 스냅샷 → 켤 때 복원 ----------
+#   끄기 워크플로가 destroy 직전에 스냅샷을 직접 만들고 완료를 확인 (aws-stack.yml, 실패하면 destroy 안 함)
+#   → 다음 켜기(apply)가 최신 스냅샷으로 복원 — 데이터 유지
+#   db-init(DB·계정)·Flyway 는 멱등이라 복원한 DB 에 다시 돌아도 그대로
 resource "aws_db_subnet_group" "this" {
   name       = local.name
   subnet_ids = module.vpc.database_subnets
@@ -25,16 +27,13 @@ resource "aws_db_instance" "this" {
   username = local.p.db_master_user
   password = local.p.db_master_password
 
-  # 개발 기간: 자동 백업·최종 스냅샷 없음 (Flyway 로 스키마 재생성)
+  # 스냅샷은 끄기 워크플로가 destroy 전에 만듦 → destroy 자체의 최종 스냅샷은 끔 (떠 있는 인스턴스에도 바로 적용되게)
+  #   자동 백업은 destroy 때 함께 지워져 의미 없음 → 0. 스냅샷은 최신 7개 보관
+  snapshot_identifier     = var.db_snapshot_identifier
   skip_final_snapshot     = true
   backup_retention_period = 0
-  # 운영 (매일 destroy 시 최종 스냅샷 → 다음 apply 에서 복원): 아래로 되돌리고 aws-stack.yml 의 스냅샷 복원·정리 단계 주석 해제
-  # snapshot_identifier       = var.db_snapshot_identifier
-  # skip_final_snapshot       = false
-  # final_snapshot_identifier = "${local.name}-final-${formatdate("YYYYMMDDhhmm", timestamp())}"
-  # backup_retention_period   = 1
-  copy_tags_to_snapshot = true
-  deletion_protection   = false
+  copy_tags_to_snapshot   = true
+  deletion_protection     = false
 
   auto_minor_version_upgrade      = true
   apply_immediately               = true
@@ -71,6 +70,7 @@ resource "aws_mq_broker" "this" {
 }
 
 # ---------- ElastiCache Valkey 9.1 · cache.t4g.micro 단일(azs[0]) · TLS + AUTH ----------
+#   운영: 끌 때 스냅샷(aws-stack.yml, destroy 전) → 켤 때 복원 — refresh 세션 · 블랙리스트 유지 (매일 강제 로그아웃 없음)
 resource "aws_elasticache_subnet_group" "this" {
   name       = local.name
   subnet_ids = module.vpc.database_subnets
@@ -107,7 +107,13 @@ resource "aws_elasticache_replication_group" "this" {
   at_rest_encryption_enabled = true
   auth_token                 = local.p.redis_auth_token
 
+  snapshot_name = var.redis_snapshot_name
+
   apply_immediately = true
+
+  lifecycle {
+    ignore_changes = [snapshot_name] # 복원은 생성할 때만 — 다음 apply 에서 값이 달라도 다시 만들지 않음
+  }
 }
 
 # ---------- Parameter Store (인프라가 만든 값) ----------

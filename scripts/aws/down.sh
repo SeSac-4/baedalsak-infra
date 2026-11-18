@@ -10,6 +10,39 @@ set -uo pipefail
 # shellcheck source=scripts/aws/env.sh
 source "$(dirname "$0")/env.sh"
 
+echo "== MQ 큐 비우기 대기 (최대 5분)"
+# 브로커는 destroy 때 함께 사라짐 → 앱(소비자)이 살아 있을 때 남은 메시지를 처리하게 기다림
+#   DLQ(이름이 dlq 로 끝남)는 처리 대상이 아니라 개수만 경고. 시간이 지나도 남으면 경고만 하고 끄기는 계속 (비용)
+#   MQ 는 private → 클러스터 안 curl 파드에서 관리 API 조회. 접속 정보 = db-init.sh 가 만든 Secret data-init
+kubectl -n "$NS" apply -f - >/dev/null <<'EOF2' || true
+apiVersion: v1
+kind: Pod
+metadata: { name: mq-drain }
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.11.1
+      envFrom:
+        - secretRef: { name: data-init }
+      command: ["sleep", "600"]
+EOF2
+if kubectl -n "$NS" wait --for=condition=Ready pod/mq-drain --timeout=2m >/dev/null 2>&1; then
+  for _ in $(seq 1 30); do
+    # shellcheck disable=SC2016 # $MQ_* 는 파드 안에서 풀림 (비밀번호가 실행기에 남지 않게)
+    Q="$(kubectl -n "$NS" exec mq-drain -- sh -c 'curl -fsS -u "$MQ_USER:$MQ_PASSWORD" "https://${MQ_HOST}/api/queues/%2F${MQ_VHOST}?columns=name,messages"')" || { echo "경고: MQ API 조회 실패"; break; }
+    n="$(echo "$Q" | jq '[.[] | select(.name | test("dlq$"; "i") | not) | .messages // 0] | add // 0')"
+    d="$(echo "$Q" | jq '[.[] | select(.name | test("dlq$"; "i")) | .messages // 0] | add // 0')"
+    [ "$n" = "0" ] && break
+    echo "남은 메시지: $n"; sleep 10
+  done
+  if [ "${n:-}" = "0" ]; then echo "큐 비어 있음"; else echo "경고: 메시지 ${n:-?}개 남음 — 브로커와 함께 사라짐"; fi
+  [ "${d:-0}" = "0" ] || echo "경고: DLQ 메시지 ${d}개 — 브로커와 함께 사라짐"
+else
+  echo "경고: MQ 확인 파드 못 띄움 (data-init Secret 없음 등) — 계속 진행"
+fi
+kubectl -n "$NS" delete pod mq-drain --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
 echo "== 앱 삭제 (Argo CD)"
 # ApplicationSet 을 지우면 Application 6개가 지워지고, finalizer 로 앱 리소스(gateway TGB 포함)도 함께 삭제
 #   Argo CD 를 먼저 지우면 finalizer 를 처리할 주체가 없어 삭제가 멈춤 → Argo CD 는 맨 뒤 애드온 단계에서 삭제

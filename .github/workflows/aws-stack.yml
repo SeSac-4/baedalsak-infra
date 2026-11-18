@@ -3,7 +3,7 @@
 #   aws-plan.yml       (action=plan)       : 두 스택 plan (변경 미리보기)
 #   aws-persistent.yml (action=persistent) : persistent 스택만 apply (ECR·Secrets Manager 등)
 #   aws-up.yml         (action=up)         : persistent → ephemeral apply → 애드온 → DB·MQ 초기화 → 앱 배포 → smoke test
-#   aws-down.yml       (action=down)       : 앱·애드온 삭제 → ephemeral destroy (RDS 최종 스냅샷) → 스냅샷 7개만 보관
+#   aws-down.yml       (action=down)       : MQ 큐 비우기 대기 → 앱·애드온 삭제 → RDS·Valkey 스냅샷 → ephemeral destroy → 스냅샷 7개만 보관
 #   gitops-check.yml   (action=verify)     : infra develop 의 helm 변경 → 켜져 있으면 deploy.sh(ApplicationSet 재적용·sync 대기) → smoke test (되돌리지 않고 실패 알림만)
 #   images.yml         (action=deploy)     : 새 이미지 태그를 helm/values/aws-image.yaml 에 커밋, 클러스터가 켜져 있으면 Argo CD sync 대기 → smoke test
 #   앱 배포는 Argo CD(GitOps) — deploy.sh 가 ApplicationSet 을 적용하고 sync 를 기다림. 실패 시 태그 커밋을 git revert
@@ -68,7 +68,7 @@ env:
   TF_VAR_github_repo: ${{ github.repository }}
   TF_VAR_github_ref: ${{ github.event.repository.default_branch }}
   TF_VAR_budget_daily_usd: ${{ vars.BUDGET_DAILY_USD || '20' }}
-  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '10' }}
+  TF_VAR_budget_warn_usd: ${{ vars.BUDGET_WARN_USD || '15' }}
   TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }} # 메일 주소는 Secret (공개 로그 노출 방지)
   TF_VAR_cost_report_sender: ${{ vars.COST_REPORT_SENDER || '' }}
   TF_VAR_ops_cognito_domain_prefix: ${{ vars.OPS_COGNITO_DOMAIN_PREFIX }}
@@ -174,18 +174,22 @@ jobs:
           OPS_VIEWER_EMAILS: ${{ secrets.OPS_VIEWER_EMAILS }}
         run: ./scripts/aws/ops-users.sh
 
-      # 개발 기간: RDS 는 매일 빈 DB 로 생성 (스냅샷 없음 — terraform/ephemeral/data.tf)
+      # 운영: 최신 최종 스냅샷에서 RDS · Valkey 복원 (terraform/ephemeral/data.tf) — 스냅샷이 없으면(첫 켜기) 빈 상태로 생성
+      #   개발 기간 방식(매일 빈 DB)으로 되돌릴 때는 run: terraform -chdir=terraform/ephemeral apply -input=false -auto-approve
       - name: apply ephemeral
+        id: apply
         if: inputs.action == 'up'
-        run: terraform -chdir=terraform/ephemeral apply -input=false -auto-approve
-        # 운영 (최신 최종 스냅샷에서 RDS 복원) — data.tf 를 스냅샷 방식으로 되돌릴 때 위 run 대신 사용
-        # run: |
-        #   SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
-        #     --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
-        #     --output text)
-        #   ARGS=()
-        #   if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); fi
-        #   terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
+        run: |
+          ARGS=()
+          SNAP=$(aws rds describe-db-snapshots --snapshot-type manual \
+            --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-') && Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
+            --output text)
+          if [ -n "$SNAP" ] && [ "$SNAP" != "None" ]; then echo "RDS restore from $SNAP"; ARGS+=(-var "db_snapshot_identifier=$SNAP"); echo "rds_restored=true" >> "$GITHUB_OUTPUT"; fi
+          VSNAP=$(aws elasticache describe-snapshots --snapshot-source manual \
+            --query "reverse(sort_by(Snapshots[?starts_with(SnapshotName,'${PROJECT}-${ENV_NAME}-valkey-final-') && SnapshotStatus=='available'], &NodeSnapshots[0].SnapshotCreateTime))[0].SnapshotName" \
+            --output text)
+          if [ -n "$VSNAP" ] && [ "$VSNAP" != "None" ]; then echo "Valkey restore from $VSNAP"; ARGS+=(-var "redis_snapshot_name=$VSNAP"); fi
+          terraform -chdir=terraform/ephemeral apply -input=false -auto-approve "${ARGS[@]}"
 
       - name: kubeconfig
         if: inputs.action == 'up' || inputs.action == 'down' || steps.cluster.outputs.up == 'true'
@@ -199,8 +203,10 @@ jobs:
         if: inputs.action == 'up'
         run: ./scripts/aws/db-init.sh
 
-      - name: Cognito 정리 (username 1000 이상)
-        if: inputs.action == 'up'
+      # RDS 를 스냅샷에서 복원했으면 건너뜀 — DB 에 회원이 있는데 Cognito 계정을 지우면 로그인 불가
+      #   빈 DB 로 떴을 때만(첫 켜기 · 스냅샷 없음) 실행 — member id 가 1000 부터 다시 시작해 남은 Cognito 사용자와 가입이 겹침
+      - name: Cognito 정리 (username 1000 이상, 빈 DB 일 때만)
+        if: inputs.action == 'up' && steps.apply.outputs.rds_restored != 'true'
         run: ./scripts/aws/cognito-cleanup.sh
 
       # 앱 이미지 빌드가 부른 deploy = 6개 빌드 성공 / 수동 켜기에 태그 입력 → 이 태그를 Git 에 커밋 (클러스터가 꺼져 있어도)
@@ -274,11 +280,39 @@ jobs:
         if: inputs.action == 'down'
         run: ./scripts/aws/down.sh
 
-      - name: destroy ephemeral (RDS 최종 스냅샷 생성)
+      # 데이터 보존: 앱이 내려간 뒤(쓰기 없음) 스냅샷을 만들고 완료까지 기다림 — 실패하면 이 단계에서 멈춰 destroy 안 함
+      #   이름 규칙 = 켜기의 복원 · 아래 정리 단계가 찾는 접두사 (<PROJECT>-<ENV_NAME>-final- / -valkey-final-)
+      #   이미 꺼져 있으면(인스턴스 없음) 건너뜀
+      - name: RDS · Valkey 스냅샷 (destroy 전)
+        if: inputs.action == 'down'
+        run: |
+          set -euo pipefail
+          NAME="${PROJECT}-${ENV_NAME}"
+          TS="$(TZ=Asia/Seoul date +%Y%m%d%H%M)"
+          if aws rds describe-db-instances --db-instance-identifier "$NAME" >/dev/null 2>&1; then
+            aws rds create-db-snapshot --db-instance-identifier "$NAME" --db-snapshot-identifier "${NAME}-final-${TS}" >/dev/null
+            echo "RDS 스냅샷 ${NAME}-final-${TS} 생성 대기"
+            aws rds wait db-snapshot-available --db-snapshot-identifier "${NAME}-final-${TS}"
+            echo "RDS 스냅샷 완료"
+          else echo "RDS 없음 — 건너뜀"; fi
+          if aws elasticache describe-replication-groups --replication-group-id "$NAME" >/dev/null 2>&1; then
+            aws elasticache create-snapshot --replication-group-id "$NAME" --snapshot-name "${NAME}-valkey-final-${TS}" >/dev/null
+            echo "Valkey 스냅샷 ${NAME}-valkey-final-${TS} 생성 대기"
+            for _ in $(seq 1 60); do
+              st="$(aws elasticache describe-snapshots --snapshot-name "${NAME}-valkey-final-${TS}" --query 'Snapshots[0].SnapshotStatus' --output text)"
+              [ "$st" = "available" ] && break
+              [ "$st" = "failed" ] && { echo "Valkey 스냅샷 실패"; exit 1; }
+              sleep 10
+            done
+            [ "$st" = "available" ] || { echo "Valkey 스냅샷 10분 초과"; exit 1; }
+            echo "Valkey 스냅샷 완료"
+          else echo "Valkey 없음 — 건너뜀"; fi
+
+      - name: destroy ephemeral
         if: inputs.action == 'down'
         run: terraform -chdir=terraform/ephemeral destroy -input=false -auto-approve
 
-      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김 (개발 기간엔 새로 생기지 않음 — 운영 방식 대비로 유지)
+      # 매일 1개씩 쌓이는 최종 스냅샷을 최신 7개(7일치)만 남김
       - name: RDS 최종 스냅샷 정리 (최신 7개 보관)
         if: inputs.action == 'down'
         env:
@@ -288,6 +322,17 @@ jobs:
             --query "sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier,'${PROJECT}-${ENV_NAME}-final-')], &SnapshotCreateTime)[].DBSnapshotIdentifier" \
             --output text | tr '\t' '\n' | grep . | head -n -"$KEEP")
           for s in "${OLD[@]}"; do echo "delete $s"; aws rds delete-db-snapshot --db-snapshot-identifier "$s" >/dev/null; done
+          echo "삭제 ${#OLD[@]}개, 최신 $KEEP 개 보관"
+
+      - name: Valkey 최종 스냅샷 정리 (최신 7개 보관)
+        if: inputs.action == 'down'
+        env:
+          KEEP: 7
+        run: |
+          mapfile -t OLD < <(aws elasticache describe-snapshots --snapshot-source manual \
+            --query "sort_by(Snapshots[?starts_with(SnapshotName,'${PROJECT}-${ENV_NAME}-valkey-final-')], &NodeSnapshots[0].SnapshotCreateTime)[].SnapshotName" \
+            --output text | tr '\t' '\n' | grep . | head -n -"$KEEP")
+          for s in "${OLD[@]}"; do echo "delete $s"; aws elasticache delete-snapshot --snapshot-name "$s" >/dev/null; done
           echo "삭제 ${#OLD[@]}개, 최신 $KEEP 개 보관"
 
       # 예약 실행(Scheduler → Step Functions → Lambda ①)이면 결과를 작업 토큰으로 돌려줌 → 메일 알림

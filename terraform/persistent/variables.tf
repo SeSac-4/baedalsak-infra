@@ -14,6 +14,11 @@ variable "env" {
   type        = string
 }
 
+variable "azs" {
+  description = "사용할 AZ 2개 (AZS) — ephemeral 과 같은 값. Prometheus EBS 는 azs[0]"
+  type        = list(string)
+}
+
 variable "secret_prefix" {
   description = "Secrets Manager 접두사 (SECRET_PREFIX). 비우면 <project>/<env>"
   type        = string
@@ -66,9 +71,9 @@ variable "budget_auto_down" {
 }
 
 variable "budget_warn_usd" {
-  description = "일일 비용 경고 USD (BUDGET_WARN_USD). 넘으면 메일만"
+  description = "일일 비용 경고 USD (BUDGET_WARN_USD). 넘으면 메일만 — 예산(20)의 75% (현업 관행 80% 경고 · 100% 알림에 맞춤)"
   type        = number
-  default     = 10
+  default     = 15
 }
 
 variable "alert_emails" {

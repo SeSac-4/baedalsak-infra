@@ -26,6 +26,7 @@ module "eks" {
     eks-pod-identity-agent = { before_compute = true }
     kube-proxy             = {}
     coredns                = {}
+    aws-ebs-csi-driver     = {} # Prometheus 고정 EBS (persistent/main.tf) — 권한은 iam.tf ebs_csi_pod_identity
   }
 
   eks_managed_node_groups = {
