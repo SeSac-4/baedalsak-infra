@@ -20,6 +20,8 @@ extraEnv:
   # 개발용 seed 계정 (server db/seed/R__member_seed.sql — 고객 1·2 / 사장님 101·102 / 라이더 201·202, #17)
   #   기본값(db/migration)을 덮어쓰므로 migration 도 같이 적는다. 실제 운영 전환 시 이 값 제거
   SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/seed
+  SMS_NOTIFICATION_ENABLED: "false"   # 주문·배달 알림 문자 끄기 — 부하 테스트 동안만 (로컬·AWS 공통, 끝나면 되돌리는 PR, #69)
+  EMAIL_VERIFICATION_REQUIRED: "false"   # 가입 이메일 인증 끄기 — k6 가 메일 코드 없이 가입 API 를 직접 호출하도록, 부하 테스트 동안만 (server #209, #69)
 
 
 externalSecretSsm:
