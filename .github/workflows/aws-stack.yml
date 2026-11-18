@@ -296,7 +296,9 @@ jobs:
             echo "RDS 스냅샷 완료"
           else echo "RDS 없음 — 건너뜀"; fi
           if aws elasticache describe-replication-groups --replication-group-id "$NAME" >/dev/null 2>&1; then
-            aws elasticache create-snapshot --replication-group-id "$NAME" --snapshot-name "${NAME}-valkey-final-${TS}" >/dev/null
+            # 클러스터 모드 꺼짐 → 복제 그룹이 아닌 노드(<NAME>-001)로 떠야 함 (InvalidParameterCombination)
+            NODE="$(aws elasticache describe-replication-groups --replication-group-id "$NAME" --query 'ReplicationGroups[0].MemberClusters[0]' --output text)"
+            aws elasticache create-snapshot --cache-cluster-id "$NODE" --snapshot-name "${NAME}-valkey-final-${TS}" >/dev/null
             echo "Valkey 스냅샷 ${NAME}-valkey-final-${TS} 생성 대기"
             for _ in $(seq 1 60); do
               st="$(aws elasticache describe-snapshots --snapshot-name "${NAME}-valkey-final-${TS}" --query 'Snapshots[0].SnapshotStatus' --output text)"
