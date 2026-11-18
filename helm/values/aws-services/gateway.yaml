@@ -2,11 +2,13 @@
 #   이전에는 scripts/aws/deploy.sh 의 --set
 #   targetGroupBinding.targetGroupARN 은 매일 바뀌어 켜기 때 deploy.sh 가 ApplicationSet 에 채움
 
-# replica 2 · HPA 2~4 (CPU 70%) — services/gateway.yaml 의 2~8 · 60% 는 부하 테스트 이후 값
+# replica 2 · HPA 2~6 (CPU 70%) — services/gateway.yaml 의 2~8 · 60% 는 부하 테스트 이후 값
+#   최대 4 → 6 (11-18 부하 테스트, #71): 4개(최대)에서 CPU 150% 이상 반복. 1,000명(650 요청/초)에 필요한
+#   CPU 2.7~3.5코어 ÷ 파드당 0.40~0.49코어 = 5.5~8.8개. 노드 4대(최대) 예약 안에 들어가는 범위
 autoscaling:
   enabled: true
   minReplicas: 2
-  maxReplicas: 4
+  maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   behavior:
     scaleUp:
@@ -15,6 +17,13 @@ autoscaling:
 pdb:
   enabled: true
   minAvailable: 1
+
+# 노드별 분산을 "가능하면"이 아니라 "반드시"로 (11-18 부하 테스트, #71) — chart 기본값 목록을 통째로 덮어씀
+#   예약(250m)보다 실제 사용(0.4~0.56코어)이 커서 한 노드에 2개가 몰리면 그 노드 CPU 100% → liveness 시간 초과 · 재시작 → ALB 502
+#   자리가 없으면 Pending → Cluster Autoscaler 가 노드 추가 (최대 4대)
+topologySpreadConstraints:
+  - { maxSkew: 1, topologyKey: topology.kubernetes.io/zone, whenUnsatisfiable: ScheduleAnyway }
+  - { maxSkew: 1, topologyKey: kubernetes.io/hostname,      whenUnsatisfiable: DoNotSchedule }
 
 # ALB 대상 그룹(Terraform)에 파드 IP 등록
 targetGroupBinding:
