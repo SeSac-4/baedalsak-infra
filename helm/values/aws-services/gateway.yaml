@@ -18,12 +18,8 @@ pdb:
   enabled: true
   minAvailable: 1
 
-# 노드별 분산을 "가능하면"이 아니라 "반드시"로 (11-18 부하 테스트, #71) — chart 기본값 목록을 통째로 덮어씀
-#   예약(250m)보다 실제 사용(0.4~0.56코어)이 커서 한 노드에 2개가 몰리면 그 노드 CPU 100% → liveness 시간 초과 · 재시작 → ALB 502
-#   자리가 없으면 Pending → Cluster Autoscaler 가 노드 추가 (최대 4대)
-topologySpreadConstraints:
-  - { maxSkew: 1, topologyKey: topology.kubernetes.io/zone, whenUnsatisfiable: ScheduleAnyway }
-  - { maxSkew: 1, topologyKey: kubernetes.io/hostname,      whenUnsatisfiable: DoNotSchedule }
+# 노드 분산은 chart 기본값(가능하면, ScheduleAnyway) — 11-18 2차 부하 테스트에서 "반드시"(DoNotSchedule)는
+#   노드 CPU 100% 를 줄이지 못하고 gateway Pending 만 생겨 되돌림 (#71)
 
 # ALB 대상 그룹(Terraform)에 파드 IP 등록
 targetGroupBinding:
