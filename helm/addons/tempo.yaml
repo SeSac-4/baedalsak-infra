@@ -26,7 +26,7 @@ tempo:
           endpoint: "0.0.0.0:4318"
   resources:
     requests: { cpu: 100m, memory: 256Mi }
-    limits: { memory: 512Mi }
+    limits: { memory: 1536Mi }  # 부하 테스트 뒤 압축 때 512Mi 에서 OOMKilled (11-19, #75)
 
 persistence: { enabled: false }  # PVC 없음 (EBS CSI 없음)
 
