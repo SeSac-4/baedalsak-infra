@@ -28,10 +28,10 @@ resource "aws_db_instance" "this" {
   password = local.p.db_master_password
 
   # 스냅샷은 끄기 워크플로가 destroy 전에 만듦 → destroy 자체의 최종 스냅샷은 끔 (떠 있는 인스턴스에도 바로 적용되게)
-  #   자동 백업은 destroy 때 함께 지워져 의미 없음 → 0. 스냅샷은 최신 7개 보관
+  #   자동 백업 7일 (#77) — 매일 destroy 하는 동안은 함께 지워져 효과가 켜져 있는 하루뿐, 24시간 운영으로 바뀌면 시점 복구가 됨. 스냅샷은 최신 7개 보관
   snapshot_identifier     = var.db_snapshot_identifier
   skip_final_snapshot     = true
-  backup_retention_period = 0
+  backup_retention_period = 7
   copy_tags_to_snapshot   = true
   deletion_protection     = false
 
