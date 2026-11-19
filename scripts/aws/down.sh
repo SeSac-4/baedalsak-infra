@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # 끄기 준비 — terraform destroy 전에 실행
-#   앱(Argo CD ApplicationSet 삭제) · Grafana TGB 삭제 → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki) 삭제
+#   앱(Argo CD ApplicationSet 삭제) · Grafana TGB 삭제 → TargetGroupBinding 0개 확인 → monitoring(Grafana·Prometheus·Loki · Tempo 는 남은 추적 S3 업로드 대기 후) 삭제
 #   → Argo CD 삭제 → 애드온 삭제
 #   LBC 가 TGB 에 finalizer 를 붙이므로 LBC 를 먼저 지우면 TGB 삭제가 멈춤
 # =============================================================================
@@ -71,11 +71,20 @@ for _ in $(seq 1 30); do
 done
 
 kubectl delete namespace "$NS" --wait --timeout=5m 2>/dev/null || true
+APPS_GONE=$(date +%s)   # 앱이 모두 내려가 새 추적이 더 들어오지 않는 시점
 
 echo "== monitoring 삭제 (Prometheus·Grafana · Loki · Tempo)"
 helm uninstall monitoring -n monitoring --wait --timeout 5m 2>/dev/null || true
 # Loki 는 종료 시 메모리의 로그를 S3 로 내보냄 (앱 종료 로그까지 들어온 뒤라 유실 없음)
 helm uninstall loki -n monitoring --wait --timeout 5m 2>/dev/null || true
+# Tempo 3 은 flush API 가 없음 — live-store 가 추적을 최대 30초(max_trace_live) 모아 30초(max_block_duration)마다
+#   블록으로 잘라 S3 에 올림. 앱이 내려간 뒤 90초가 지나야 마지막 추적까지 S3 에 올라감 → 모자란 만큼 기다린 뒤 삭제
+#   shortcut: 고정 90초 대기, 업로드 완료를 확인하지 않음 — 유실이 보이면 Tempo 지표(블록 업로드 수)로 확인하도록 바꿀 것
+TEMPO_WAIT=$(( 90 - ($(date +%s) - APPS_GONE) ))
+if [ "$TEMPO_WAIT" -gt 0 ]; then
+  echo "== Tempo 남은 추적 S3 업로드 대기 (${TEMPO_WAIT}초)"
+  sleep "$TEMPO_WAIT"
+fi
 helm uninstall tempo -n monitoring --wait --timeout 5m 2>/dev/null || true
 kubectl delete namespace monitoring --wait --timeout=5m 2>/dev/null || true
 kubectl delete clustersecretstore aws-secrets-manager aws-parameter-store --ignore-not-found 2>/dev/null || true
