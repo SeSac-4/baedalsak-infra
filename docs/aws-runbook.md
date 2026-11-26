@@ -14,7 +14,7 @@ terraform/
 │     cognito.tf  사용자 풀 2개(prod · 로컬 개발) · 그룹 3개 · member 앱 클라이언트
 │     ses.tf      도메인 자격 · DKIM
 │     audit.tf    로그 버킷(CloudTrail · ALB 액세스 30일) · CloudTrail(전체 리전)
-│     ops.tf      SNS(메일 구독) · Lambda ①②③ · Step Functions · EventBridge Scheduler(평일 09:30·18:00) · Budgets
+│     ops.tf      SNS(메일 구독) · Lambda ①②③ · Step Functions · EventBridge Scheduler(비용 메일·로그 보관만, 켜기·끄기 예약 없음) · Budgets
 └── ephemeral/   매일 apply·destroy: VPC · NAT · EKS · 노드그룹 · internal ALB(HTTPS) · 대상 그룹 · RDS · MQ · Valkey · Bastion · Pod Identity · SSM
       edge.tf     CloudFront 배포 · VPC origin · Route 53 alias (ALB 에 묶여 있어 함께 생성·삭제)
       alarms.tf   CloudWatch 알람 → SNS → 메일
@@ -22,8 +22,8 @@ scripts/aws/     env.sh(공통 변수) · addons.sh · db-init.sh · deploy.sh �
                  argocd-ui.sh (Argo CD UI 비상 접속 port-forward — 평소엔 https://<도메인>/argocd)
 helm/argocd/     Argo CD values · 앱 6개 ApplicationSet (아래 "앱 배포 — Argo CD")
 .github/workflows/
-├── aws-up.yml          AWS 켜기 (Scheduler 평일 09:30 + 수동)
-├── aws-down.yml        AWS 끄기 (Scheduler 평일 18:00 · 수동. 예산 초과 자동 끄기는 꺼 둠)
+├── aws-up.yml          AWS 켜기 (수동 전용)
+├── aws-down.yml        AWS 끄기 (수동 전용. 예산 초과 자동 끄기는 꺼 둠)
 ├── aws-plan.yml        AWS 변경 미리보기 (plan)
 ├── aws-persistent.yml  AWS 상시 리소스 적용 (ECR·Secrets)
 ├── aws-stack.yml       (공통) 위 4개가 호출하는 본체 — 직접 실행 안 함
@@ -122,12 +122,12 @@ terraform -chdir=terraform/persistent plan
 2. **AWS 상시 리소스 적용 (ECR·Secrets)** → ECR·Secrets Manager 생성
 3. **앱 이미지 빌드 (서버 → ECR)** · server_ref 비움(=`SERVER_REF`) → Summary 에 `image_tag` (서버 커밋 7자리)
 
-매일 (자동, 월~금 · EventBridge Scheduler → Step Functions → Lambda ① → 기본 브랜치 워크플로):
+켜기·끄기 (수동 전용 — Actions 에서 직접 실행. 시간 예약 없음):
 
-| 시각 (KST) | 워크플로 | 하는 일 |
+| 순서 | 워크플로 | 하는 일 |
 |---|---|---|
-| 09:30 | **AWS 켜기** | 약 25분 → 10:00 전 사용 가능. image_tag 를 비우면 `helm/values/aws-image.yaml`(develop)의 태그를 배포 (입력하면 그 태그를 이 파일에 커밋한 뒤 배포). Argo CD 설치 → ApplicationSet 적용 → 6개 Synced·Healthy 대기. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
-| 18:00 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
+| 1 | **AWS 켜기** | 약 36분. image_tag 를 비우면 `helm/values/aws-image.yaml`(develop)의 태그를 배포 (입력하면 그 태그를 이 파일에 커밋한 뒤 배포). Argo CD 설치 → ApplicationSet 적용 → 6개 Synced·Healthy 대기. 마지막 단계 `smoke test` 가 `SMOKE TEST PASSED` 면 성공 |
+| 2 | **AWS 끄기** | 앱·애드온 삭제 → ephemeral destroy (개발 기간: RDS 스냅샷 없음 — 데이터 사라짐) |
 
 - 개발 기간에는 RDS 를 **매일 빈 DB 로 생성**합니다 (db.t4g.micro · **Multi-AZ**(#45) · 자동 백업 7일(#77, 매일 destroy 라 켜져 있는 동안만)·최종 스냅샷 없음) → db-init 이 DB·계정, 각 서비스 Flyway 가 테이블 생성. 운영 방식(스냅샷 복원)은 `data.tf`·`aws-stack.yml` 에 주석으로 남겨 둠.
 - 새 서버 코드는 아래 "서버 커밋 자동 배포" 로 반영됩니다 (켜기 자체는 이미지를 빌드하지 않음). 수동으로는 **앱 이미지 빌드** 실행.

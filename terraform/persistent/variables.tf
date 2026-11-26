@@ -46,18 +46,6 @@ variable "github_ref" {
   type        = string
 }
 
-variable "schedule_up" {
-  description = "켜기 시각 (EventBridge Scheduler cron, Asia/Seoul)"
-  type        = string
-  default     = "cron(30 9 ? * MON-FRI *)" # 10:00 까지 사용 가능하도록 09:30 시작 (켜기 약 25분)
-}
-
-variable "schedule_down" {
-  description = "끄기 시각 (EventBridge Scheduler cron, Asia/Seoul)"
-  type        = string
-  default     = "cron(0 18 ? * MON-FRI *)"
-}
-
 variable "budget_daily_usd" {
   description = "일일 예산 USD (BUDGET_DAILY_USD). 넘으면 메일 (budget_auto_down 이면 끄기도)"
   type        = number
