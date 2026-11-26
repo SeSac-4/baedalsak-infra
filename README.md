@@ -20,15 +20,15 @@
 
 ## AWS (EKS) — Terraform + GitHub Actions
 
-AWS 개발 환경은 **평일 09:30 KST 에 켜지고 18:00 KST 에 꺼집니다** (EventBridge Scheduler → Step Functions → Lambda → GitHub Actions, Asia/Seoul).
+AWS 개발 환경은 **시간 예약 없이 Actions 에서 수동으로만 켜고 끕니다** (AWS 켜기 · AWS 끄기 워크플로 실행).
 켜기·끄기 결과는 **실패했을 때만** 메일로 옵니다. 매일 09:00 에 이틀 전·전날 서비스별 비용 메일이 옵니다.
 예산(Budgets)은 하루 $10 · $20 넘으면 Discord #alert-cost 로 알립니다 (`ALERT_EMAILS` 가 있으면 메일도 · 자동 끄기는 꺼 둠 — `budget_auto_down`).
 구성·처음 설정·실행 순서는 [`docs/aws-runbook.md`](docs/aws-runbook.md), 환경 변수 목록은 [`.env.example`](.env.example).
 
 | Actions 워크플로 | 실행 | 하는 일 |
 |---|---|---|
-| AWS 켜기 (평일 09:30) | 예약 · 수동 | 상시 리소스 apply → VPC·EKS·RDS(Multi-AZ · 빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온(+Argo CD) → DB·MQ 초기화 → 앱 배포(Argo CD) → smoke test |
-| AWS 끄기 (평일 18:00) | 예약 · 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
+| AWS 켜기 | 수동 | 상시 리소스 apply → VPC·EKS·RDS(Multi-AZ · 빈 DB, 개발 기간)·MQ·Valkey·ALB·CloudFront 생성 → 애드온(+Argo CD) → DB·MQ 초기화 → 앱 배포(Argo CD) → smoke test |
+| AWS 끄기 | 수동 | 앱·애드온 삭제 → 위 리소스 삭제 (개발 기간: RDS 스냅샷 없음 — 다음 켜기 때 Flyway 가 스키마 생성) |
 | 앱 이미지 빌드 (서버 → ECR) | 서버 develop 머지 시 자동 · 수동 | baedalsak-server 6개 이미지 빌드 → ECR → 태그를 `helm/values/aws-image.yaml` 에 커밋 → 켜져 있으면 Argo CD 가 배포 |
 | 인프라 변경 배포 확인 (Argo CD) | infra develop 에 helm 변경 머지 시 자동 · 수동 | 켜져 있으면 ApplicationSet 재적용 → develop 최신 커밋까지 sync 대기 → smoke test (실패 시 Discord, 자동 되돌리기 없음) |
 | 프론트 배포 (클라이언트 → S3) | 클라이언트 develop push 시 자동 · 수동 | `npm run build`(토스 클라이언트 키는 Parameter Store) → S3 → CloudFront 무효화 |

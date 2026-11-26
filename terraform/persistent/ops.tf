@@ -1,6 +1,6 @@
 # =============================================================================
 # 운영 자동화 (그림 v6 B안)
-#   켜기·끄기 : EventBridge Scheduler(평일 09:30·18:00 KST) → Step Functions → Lambda ① → GitHub Actions
+#   켜기·끄기 : 수동 실행은 Actions 에서 직접. 예산 초과 자동 끄기만 Step Functions → Lambda ① → GitHub Actions
 #              워크플로가 작업 토큰으로 결과 보고 → Lambda ② 가 결과 확인 → SNS alerts → 메일
 #              (확인: GitHub 실패 job·step·오류 로그 + AWS 실제 상태 — 켜기는 EKS·RDS·사이트, 끄기는 남은 리소스)
 #   알람      : CloudWatch 알람(ephemeral/alarms.tf) → SNS alerts → Lambda ⑤ notify → Discord (+ ALERT_EMAILS 메일 구독)
@@ -351,7 +351,7 @@ resource "aws_sfn_state_machine" "power" {
   })
 }
 
-# ---------- EventBridge Scheduler (평일 09:30 켜기 · 18:00 끄기, 공휴일은 막지 않음) ----------
+# ---------- EventBridge Scheduler 공통 신뢰 정책 (비용 메일·로그 보관용. 켜기·끄기는 수동 실행만) ----------
 data "aws_iam_policy_document" "scheduler_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -359,33 +359,6 @@ data "aws_iam_policy_document" "scheduler_trust" {
       type        = "Service"
       identifiers = ["scheduler.amazonaws.com"]
     }
-  }
-}
-
-resource "aws_iam_role" "scheduler" {
-  name               = "${local.name}-scheduler-power"
-  assume_role_policy = data.aws_iam_policy_document.scheduler_trust.json
-}
-
-resource "aws_iam_role_policy" "scheduler" {
-  name = "start"
-  role = aws_iam_role.scheduler.id
-  policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = "states:StartExecution", Resource = aws_sfn_state_machine.power.arn }]
-  })
-}
-
-resource "aws_scheduler_schedule" "power" {
-  for_each                     = { up = var.schedule_up, down = var.schedule_down }
-  name                         = "${local.name}-${each.key}"
-  schedule_expression          = each.value
-  schedule_expression_timezone = "Asia/Seoul"
-  flexible_time_window { mode = "OFF" }
-  target {
-    arn      = aws_sfn_state_machine.power.arn
-    role_arn = aws_iam_role.scheduler.arn
-    input    = jsonencode({ action = each.key })
   }
 }
 

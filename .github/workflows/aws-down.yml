@@ -1,10 +1,9 @@
-# AWS 개발 환경 끄기 — 평일 18:00 KST 자동 + 수동 실행
+# AWS 개발 환경 끄기 — 수동 실행 전용 (시간 예약 없음)
 #   앱·애드온 삭제 → RDS·Valkey 스냅샷(완료 확인) → ephemeral 스택 삭제 → 스냅샷 최신 7개만 보관
 #   ECR·Secrets Manager 등 persistent 스택은 지우지 않음
-name: AWS 끄기 (평일 18:00)
+name: AWS 끄기
 
-# 예약: EventBridge Scheduler(평일 18:00 KST) → Step Functions → Lambda ① 이 task_token 과 함께 실행 (terraform/persistent/ops.tf)
-#   Budgets 일일 예산 초과 시 자동 실행은 꺼 둠 (terraform/persistent budget_auto_down)
+# Budgets 일일 예산 초과 시 자동 실행은 꺼 둠 (terraform/persistent budget_auto_down)
 on:
   workflow_dispatch:
     inputs:
